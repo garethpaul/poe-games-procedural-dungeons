@@ -2273,7 +2273,10 @@ const GAME = {
   cell:{x:0,y:0}, path:[], stepT:0, speed:6.0,
   defeated:new Set(), opened:new Set(), healed:new Set(),
   pendingEnd:null, deathT:-1, winT:-1, moved:false,
+  claimsVirgin:true,
 };
+/* distance-to-boss field for the race meter, rebuilt per forge */
+let bossDist = null, bossDistStart = 1;
 
 /* hero: a tiny torch-lit adventurer built from primitives; the same builder
    makes the (lightless) heroes of other room members */
@@ -2470,22 +2473,66 @@ function pickupTreasure(c){
 
 function startRun(){
   GAME.active = true; GAME.over = false; GAME.victory = false;
-  GAME.bossTaken = false;
+  GAME.bossTaken = false; GAME.claimsVirgin = true;
   GAME.hp = MAX_HP; GAME.gold = 0;
   GAME.path = []; GAME.stepT = 0; GAME.moved = false;
   GAME.defeated.clear(); GAME.opened.clear(); GAME.healed.clear();
   GAME.pendingEnd = null; GAME.deathT = -1; GAME.winT = -1;
   const e = D.rooms[D.entrance];
   GAME.cell = { x:e.cx, y:e.cy };
+  buildBossDist();
   hero.visible = true;
   hero.scale.setScalar(1);
   hero.position.set(gwx(e.cx), 0, gwz(e.cy));
   /* remote heroes re-place themselves at their next synced cell */
-  for(const r of remotes.values()) r.cell = null;
+  for(const r of remotes.values()){ r.cell = null; r.warned = false; }
   targetMarker.visible = false;
   emitHud();
   emitGame({ type:'runStart', seed: D.seed });
   emitGame({ type:'pos', cell:{...GAME.cell}, hp:GAME.hp, gold:GAME.gold });
+}
+
+/* ---- race meter: distance-to-boss field over walkable cells ---- */
+function buildBossDist(){
+  bossDist = null; bossDistStart = 1;
+  if(!gameRefs || !gameRefs.boss || !D) return;
+  const W=D.W, H=D.H, grid=D.grid;
+  const idx=(x,y)=>y*W+x;
+  const dist = new Int32Array(W*H).fill(-1);
+  const start = idx(gameRefs.boss.x, gameRefs.boss.y);
+  if(grid[start]!==FLOOR) return;
+  dist[start]=0;
+  const q=[start];
+  for(let h=0; h<q.length; h++){
+    const c=q[h], x=c%W, d=dist[c]+1;
+    let n;
+    if(x>0     && grid[n=c-1]===FLOOR && dist[n]<0){ dist[n]=d; q.push(n); }
+    if(x<W-1   && grid[n=c+1]===FLOOR && dist[n]<0){ dist[n]=d; q.push(n); }
+    if(c>=W    && grid[n=c-W]===FLOOR && dist[n]<0){ dist[n]=d; q.push(n); }
+    if(c<W*H-W && grid[n=c+W]===FLOOR && dist[n]<0){ dist[n]=d; q.push(n); }
+  }
+  bossDist = dist;
+  const e = D.rooms[D.entrance];
+  bossDistStart = Math.max(1, dist[idx(e.cx, e.cy)]);
+}
+function bossPct(cell){
+  if(!bossDist || !D || !cell) return null;
+  const d = bossDist[cell.y*D.W + cell.x];
+  if(d < 0) return null;
+  return Math.max(0, Math.min(1, 1 - d/bossDistStart));
+}
+function raceProgress(){
+  const hex = c => '#' + c.toString(16).padStart(6,'0');
+  const out = [];
+  const selfPct = bossPct(GAME.cell);
+  if(selfPct !== null && !GAME.over)
+    out.push({ userId:'self', pct:selfPct, color:'#3fd0bb' });
+  for(const [userId, r] of remotes){
+    if(!r.cell || r.over) continue;
+    const pct = bossPct(r.cell);
+    if(pct !== null) out.push({ userId, pct, color: hex(remoteColor(userId)) });
+  }
+  return out;
 }
 
 /* BFS path over FLOOR cells; returns array of cells excluding the start */
@@ -2613,19 +2660,33 @@ function onEnterCell(c){
   emitHud();
 }
 
-/* ---- shared-world sync: claims made by other room members ---- */
-function applyClaims(keys, bossByOtherName){
+/* ---- shared-world sync: claims made by other room members.
+   `claims` is [{key, name}] — the claimant's display name lets us narrate
+   the race ("Alice looted a chest") right where it happened. The very first
+   application after a forge is silent: a late joiner shouldn't get a flood
+   of floats for history. ---- */
+function applyClaims(claims, bossByOtherName){
   if(!gameRefs) return;
-  for(const key of keys){
+  const narrate = !GAME.claimsVirgin;
+  GAME.claimsVirgin = false;
+  for(const c of claims){
+    const key = typeof c === 'string' ? c : c.key;
+    const name = typeof c === 'string' ? '' : c.name;
     const [kind, idxStr] = key.split('-');
     const i = parseInt(idxStr, 10);
     if(kind==='spawn' && gameRefs.spawns[i] && !GAME.defeated.has(i)){
       GAME.defeated.add(i); hideInstances(gameRefs.spawns[i].refs);
       hideEnemyMarker(i);
+      const sp = gameRefs.spawns[i];
+      if(narrate && name) floatText(sp.x, sp.y, name + ' slew ' + (sp.tier>=3?'an elite':'a foe'), 'df-rival');
     } else if(kind==='chest' && gameRefs.chests[i] && !GAME.opened.has(i)){
       GAME.opened.add(i); hideInstances(gameRefs.chests[i].refs);
+      const ch = gameRefs.chests[i];
+      if(narrate && name) floatText(ch.x, ch.y, name + ' looted a chest', 'df-rival');
     } else if(kind==='shrine' && gameRefs.shrines[i] && !GAME.healed.has(i)){
       GAME.healed.add(i);
+      const sh = gameRefs.shrines[i];
+      if(narrate && name) floatText(sh.x, sh.y, name + ' used the shrine', 'df-rival');
     }
   }
   if(bossByOtherName && !GAME.bossTaken){
@@ -2673,6 +2734,15 @@ function setRemotePlayers(list){
       r.group.position.set(gwx(p.cell.x), 0, gwz(p.cell.y));
     }
     r.cell = p.cell;
+    /* pressure beat: a living rival is closing on the boss */
+    if(r.cell && !r.over && !GAME.over && !r.warned){
+      const pct = bossPct(r.cell);
+      if(pct !== null && pct >= 0.85){
+        r.warned = true;
+        floatText(r.cell.x, r.cell.y, r.name + ' is closing on the boss!', 'df-rival');
+        emitGame({ type:'fx', kind:'closing' });
+      }
+    }
   }
   for(const [userId, r] of remotes){
     if(seen.has(userId)) continue;
@@ -2968,7 +3038,24 @@ el.loops.addEventListener('input', ()=>{ el.vLoops.textContent = el.loops.value 
 el.decor.addEventListener('input', ()=>{ el.vDecor.textContent = el.decor.value + '%'; sliderRegen(); });
 el.seed.addEventListener('change', ()=>forge(true));
 el.dice.addEventListener('click', ()=>{ el.seed.value = 1 + Math.floor(Math.random()*999999); forge(true); });
-el.forge.addEventListener('click', ()=>forge(true));
+/* Reforging resets EVERYONE's run — while a race is live, require a second
+   tap so one player can't wipe the floor by accident. */
+let forgeArmed = null;
+el.forge.addEventListener('click', ()=>{
+  const raceLive = (GAME.moved && !GAME.over) ||
+    [...remotes.values()].some(r => r.cell && !r.over);
+  if(raceLive && !forgeArmed){
+    el.forge.textContent = 'RESET EVERYONE — TAP AGAIN';
+    forgeArmed = setTimeout(()=>{
+      forgeArmed = null;
+      el.forge.innerHTML = 'FORGE&nbsp;DUNGEON';
+    }, 4000);
+    return;
+  }
+  if(forgeArmed){ clearTimeout(forgeArmed); forgeArmed = null; }
+  el.forge.innerHTML = 'FORGE&nbsp;DUNGEON';
+  forge(true);
+});
 el.tGraph.addEventListener('change', ()=>{ if(!animating) setOverlayStatic(); });
 el.tHeat.addEventListener('change', ()=>applyHeat(el.tHeat.checked));
 el.tPost.addEventListener('change', ()=>{ POST.enabled = el.tPost.checked; });
@@ -3062,9 +3149,10 @@ const game = {
     forge(true);
   },
   /* multiplayer sync surface (driven by the App's store subscriptions) */
-  applyClaims: (keys, bossByOtherName) => applyClaims(keys, bossByOtherName || null),
+  applyClaims: (claims, bossByOtherName) => applyClaims(claims, bossByOtherName || null),
   setRemotePlayers: (list) => setRemotePlayers(list),
   setGhosts: (list) => setGhosts(list),
+  raceProgress: () => raceProgress(),
 };
 /* expose for Playwright e2e — same-iframe global, harmless in production */
 try { window.__dfGame = game; } catch { /* no-op */ }

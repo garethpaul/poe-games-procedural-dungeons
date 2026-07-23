@@ -14,7 +14,10 @@ export type GameEvent =
 			over: boolean;
 			victory: boolean;
 	  }
-	| { type: "fx"; kind: "hit" | "gold" | "heal" | "win" | "death" }
+	| {
+			type: "fx";
+			kind: "hit" | "gold" | "heal" | "win" | "death" | "closing";
+	  }
 	| { type: "firstMove" }
 	| { type: "runStart"; seed: number }
 	| { type: "claim"; key: string }
@@ -64,11 +67,16 @@ export interface GameApi {
 	/** Retry the same floor (delta 0) or descend to the next one (delta 1). */
 	newRun: (seedDelta: number) => void;
 	/** Hide POIs claimed by other members; end the run if they took the boss. */
-	applyClaims: (keys: string[], bossByOtherName?: string | null) => void;
+	applyClaims: (
+		claims: Array<{ key: string; name: string }>,
+		bossByOtherName?: string | null,
+	) => void;
 	/** Render/refresh the other members' heroes. */
 	setRemotePlayers: (players: RemotePlayer[]) => void;
 	/** Render/refresh looping translucent replays of recorded runs. */
 	setGhosts: (ghosts: GhostRun[]) => void;
+	/** Living players' progress toward the boss, for the race meter. */
+	raceProgress: () => Array<{ userId: string; pct: number; color: string }>;
 }
 
 export interface DungeonForgeOptions {

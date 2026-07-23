@@ -35,6 +35,12 @@ export interface PoeBridge {
 		notification: (type: string) => void;
 	};
 	openProfile?: (userId: string) => void;
+	pickMembers?: (input: {
+		title: string;
+		addFromContacts: boolean;
+		excludeUserIds: string[];
+		playingUserIds: string[];
+	}) => Promise<unknown>;
 }
 
 export interface MountOptions {
@@ -84,9 +90,14 @@ const APP_HTML = `
 			<div class="df-gold" aria-label="Gold">🪙 <b id="hudGold">0</b></div>
 			<div class="df-best" id="hudBest" hidden></div>
 			<div class="df-players" id="hudPlayers" aria-label="Other players"></div>
+			<div class="df-race" id="hudRace" hidden aria-label="Race to the boss">
+				<div class="df-race-track"></div>
+				<span class="df-race-boss">☠</span>
+			</div>
 		</div>
 		<div class="df-hud-right">
 			<button class="df-iconbtn" id="hudAgain" hidden>⚔ PLAY AGAIN</button>
+			<button class="df-iconbtn" id="hudInvite" aria-label="Invite players" title="Invite players">👥+</button>
 			<button class="df-iconbtn" id="hudHelp" aria-label="How to play" title="How to play">?</button>
 			<button class="df-iconbtn" id="hudForge" aria-label="Forge settings" title="Forge settings">⚒</button>
 		</div>
@@ -340,6 +351,39 @@ export async function mountApp(
 	$("hudForge")?.addEventListener("click", () => {
 		panel.hidden = !panel.hidden;
 	});
+	$("hudInvite")?.addEventListener("click", () => {
+		void options.poe
+			?.pickMembers?.({
+				title: "Invite players to the dungeon",
+				addFromContacts: true,
+				excludeUserIds: [userId],
+				playingUserIds: latestPlayers.map((p) => p.userId),
+			})
+			.catch((error) => console.error("Invite picker failed", error));
+	});
+
+	// Race meter: dots per living player, positioned by distance-to-boss.
+	function updateRaceMeter(): void {
+		const race = $("hudRace");
+		if (!race || !engine) return;
+		const entries = engine.game.raceProgress();
+		if (entries.length < 2) {
+			race.hidden = true;
+			return;
+		}
+		race.hidden = false;
+		race
+			.querySelectorAll(".df-race-dot")
+			.forEach((el: Element) => el.remove());
+		for (const e of entries) {
+			const dot = document.createElement("span");
+			dot.className = "df-race-dot";
+			dot.style.left = `${Math.round(e.pct * 100)}%`;
+			dot.style.background = e.color;
+			if (e.userId === "self") dot.classList.add("self");
+			race.appendChild(dot);
+		}
+	}
 	$("hudHelp")?.addEventListener("click", () => {
 		help.hidden = !help.hidden;
 	});
@@ -422,13 +466,20 @@ export async function mountApp(
 		cell: { x: number; y: number } | null;
 		over: boolean;
 		gold: number;
+		updatedAt: number;
 	}> = [];
 	let latestGhosts: Array<Ghost & { name: string }> = [];
+	// A player counts as live only with a fresh heartbeat — otherwise their
+	// closed-mid-run hero would stand frozen in everyone's dungeon forever.
+	const PRESENCE_STALE_MS = 45_000;
+	function isLive(p: { cell: unknown; over: boolean; updatedAt: number }) {
+		return !!p.cell && !p.over && Date.now() - p.updatedAt < PRESENCE_STALE_MS;
+	}
 	function syncGhosts(): void {
 		if (!engine || destroyed) return;
 		const floorKey = currentFloorKey();
 		const liveIds = new Set(
-			latestPlayers.filter((p) => p.cell && !p.over).map((p) => p.userId),
+			latestPlayers.filter((p) => isLive(p)).map((p) => p.userId),
 		);
 		engine.game.setGhosts(
 			latestGhosts
@@ -549,6 +600,7 @@ export async function mountApp(
 			presence.hp = ev.hp;
 			presence.gold = ev.gold;
 			queuePresence();
+			updateRaceMeter();
 			if (runTrace.length < 4 * GHOST_TRACE_MAX)
 				runTrace.push({
 					x: ev.cell.x,
@@ -569,6 +621,7 @@ export async function mountApp(
 			else if (ev.kind === "heal") h.notification("success");
 			else if (ev.kind === "win") h.notification("success");
 			else if (ev.kind === "death") h.notification("error");
+			else if (ev.kind === "closing") h.impact("rigid");
 		} else if (ev.type === "end") {
 			void handleRunEnd(ev);
 		}
@@ -616,7 +669,34 @@ export async function mountApp(
 		),
 	);
 
-	// Other members' live heroes + HUD chips (names from $userInfo).
+	// Other members' live heroes + HUD chips (names from $userInfo). Staleness
+	// is re-evaluated on a timer, so frozen heroes fade out without new data.
+	function refreshPresence(): void {
+		if (destroyed || !engine) return;
+		engine.game.setRemotePlayers(
+			latestPlayers.map((p) => (isLive(p) ? p : { ...p, cell: null })),
+		);
+		syncGhosts();
+		updateRaceMeter();
+		const chips = $("hudPlayers");
+		if (!chips) return;
+		chips.replaceChildren(
+			...latestPlayers
+				.filter((p) => isLive(p) || p.over)
+				.map((p) => {
+					const chip = document.createElement("button");
+					chip.type = "button";
+					chip.className = "df-playerchip";
+					chip.textContent = `${p.over ? "☠ " : ""}${p.name} · ${p.gold}g`;
+					chip.addEventListener("click", () =>
+						options.poe?.openProfile?.(p.userId),
+					);
+					return chip;
+				}),
+		);
+	}
+	const presenceTicker = setInterval(refreshPresence, 15_000);
+	unsubs.push(() => clearInterval(presenceTicker));
 	unsubs.push(
 		store.subscribe(
 			async (ctx) => {
@@ -637,29 +717,15 @@ export async function mountApp(
 							cell: p.cell,
 							over: p.over,
 							gold: p.gold,
+							updatedAt: p.updatedAt,
 						};
 					}),
 				);
 			},
 			(players) => {
-				if (destroyed || !engine) return;
+				if (destroyed) return;
 				latestPlayers = players;
-				engine.game.setRemotePlayers(players);
-				syncGhosts();
-				const chips = $("hudPlayers");
-				if (!chips) return;
-				chips.replaceChildren(
-					...players.map((p) => {
-						const chip = document.createElement("button");
-						chip.type = "button";
-						chip.className = "df-playerchip";
-						chip.textContent = `${p.over ? "☠ " : ""}${p.name} · ${p.gold}g`;
-						chip.addEventListener("click", () =>
-							options.poe?.openProfile?.(p.userId),
-						);
-						return chip;
-					}),
-				);
+				refreshPresence();
 			},
 		),
 	);
@@ -674,24 +740,30 @@ export async function mountApp(
 					.scan()
 					.values()
 					.toArray()) as Claim[];
-				const bossClaim = claims.find(
-					(c) => c.key === "boss" && c.userId !== userId,
-				);
-				let bossWinnerName: string | null = null;
-				if (bossClaim) {
-					const info = (await ctx.table("$userInfo").get(bossClaim.userId)) as
+				const names = new Map<string, string>();
+				async function nameOf(id: string): Promise<string> {
+					const cached = names.get(id);
+					if (cached) return cached;
+					const info = (await ctx.table("$userInfo").get(id)) as
 						| { displayName?: string }
 						| undefined;
-					bossWinnerName = info?.displayName ?? "Another adventurer";
+					const name = info?.displayName ?? "Another adventurer";
+					names.set(id, name);
+					return name;
 				}
+				const remote = claims.filter((c) => c.userId !== userId);
+				const named = await Promise.all(
+					remote.map(async (c) => ({ key: c.key, name: await nameOf(c.userId) })),
+				);
+				const bossClaim = remote.find((c) => c.key === "boss");
 				return {
-					keys: claims.filter((c) => c.userId !== userId).map((c) => c.key),
-					bossWinnerName,
+					claims: named,
+					bossWinnerName: bossClaim ? await nameOf(bossClaim.userId) : null,
 				};
 			},
 			(result) => {
 				if (destroyed || !engine) return;
-				engine.game.applyClaims(result.keys, result.bossWinnerName);
+				engine.game.applyClaims(result.claims, result.bossWinnerName);
 			},
 		),
 	);

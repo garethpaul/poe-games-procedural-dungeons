@@ -76,6 +76,7 @@ function stubEngineFactory(): {
 					applyClaims: () => {},
 					setRemotePlayers: () => {},
 					setGhosts: () => {},
+					raceProgress: () => [],
 				},
 			},
 		};

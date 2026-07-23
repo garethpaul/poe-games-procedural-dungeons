@@ -45,6 +45,7 @@ if (root) {
 					Poe.haptics.notification(type as "success" | "warning" | "error"),
 			},
 			openProfile: (userId) => void Poe.users.openProfile({ userId }),
+			pickMembers: (input) => Poe.room.pickMembers(input),
 		},
 	});
 }

@@ -664,6 +664,48 @@ body {
 	font-size: 12px;
 }
 
+/* race meter: who's closest to the boss */
+.df-race {
+	position: relative;
+	width: 148px;
+	height: 22px;
+	background: #12141fcc;
+	border: 1px solid var(--line);
+	border-radius: 11px;
+	padding: 0 10px;
+}
+.df-race-track {
+	position: absolute;
+	left: 10px;
+	right: 22px;
+	top: 50%;
+	height: 2px;
+	background: #2b2f40;
+}
+.df-race-boss {
+	position: absolute;
+	right: 6px;
+	top: 50%;
+	transform: translateY(-52%);
+	font-size: 11px;
+	color: var(--blood);
+}
+.df-race-dot {
+	position: absolute;
+	top: 50%;
+	width: 9px;
+	height: 9px;
+	border-radius: 50%;
+	transform: translate(-50%, -50%);
+	transition: left 0.4s ease;
+	box-shadow: 0 0 5px #000;
+}
+.df-race-dot.self {
+	width: 11px;
+	height: 11px;
+	border: 1.5px solid #fff;
+}
+
 /* other players: HUD chips + in-world name tags (tap opens their profile) */
 .df-players {
 	display: flex;
@@ -727,6 +769,11 @@ body {
 }
 .df-float.df-gem {
 	color: #7fe8d0;
+}
+.df-float.df-rival {
+	color: #c9a6ff;
+	font-size: 11px;
+	font-weight: 400;
 }
 .df-float.df-heal {
 	color: #5ee0c0;
