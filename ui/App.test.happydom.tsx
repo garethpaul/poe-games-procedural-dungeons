@@ -63,6 +63,7 @@ function stubEngineFactory(): {
 						over: true,
 						victory: false,
 						walking: false,
+						escaping: false,
 						cell: { x: 0, y: 0 },
 						boss: null,
 						chests: [],
@@ -214,6 +215,7 @@ test("run end shows the banner, records the run, then hands off to tileEnd", asy
 		seed: 1337,
 		external: false,
 		winner: null,
+		escaped: false,
 	});
 	await settle(2);
 	// Decisive banner is visible before the host overlay.

@@ -548,6 +548,31 @@ body {
 	border: 1px solid #232634;
 }
 
+/* escape-window banner: urgent variant of the hint pill */
+.df-escape {
+	border-color: var(--gold);
+	color: #f4d488;
+	font-size: 12px;
+	animation: df-escape-pulse 1s ease-in-out infinite;
+}
+.df-escape b {
+	color: #ffd76b;
+}
+@keyframes df-escape-pulse {
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 #d9a44100;
+	}
+	50% {
+		box-shadow: 0 0 14px 2px #d9a44166;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.df-escape {
+		animation: none;
+	}
+}
+
 /* help popover */
 .df-help {
 	position: absolute;

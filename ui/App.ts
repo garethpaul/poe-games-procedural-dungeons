@@ -104,6 +104,7 @@ const APP_HTML = `
 	</div>
 
 	<div class="df-hint" id="hint">Tap a tile to walk · grab 🪙 chests · <b style="color:var(--blood)">☠ = enemies</b> · reach the big pulsing ☠ alive</div>
+	<div class="df-hint df-escape" id="escapeBanner" hidden></div>
 
 	<div class="df-help" id="help" hidden>
 		<b>How to play</b>
@@ -469,6 +470,10 @@ export async function mountApp(
 		updatedAt: number;
 	}> = [];
 	let latestGhosts: Array<Ghost & { name: string }> = [];
+	let latestClaims: {
+		claims: Array<{ key: string; name: string }>;
+		bossWinnerName: string | null;
+	} | null = null;
 	// A player counts as live only with a fresh heartbeat — otherwise their
 	// closed-mid-run hero would stand frozen in everyone's dungeon forever.
 	const PRESENCE_STALE_MS = 45_000;
@@ -521,20 +526,25 @@ export async function mountApp(
 		const title = $("endTitle");
 		const sub = $("endSub");
 		const art = $<HTMLImageElement>("endArt");
-		if (art) art.src = ev.victory ? victoryArtUrl : defeatArtUrl;
+		if (art)
+			art.src = ev.victory || ev.escaped ? victoryArtUrl : defeatArtUrl;
 		if (title)
 			title.textContent = ev.victory
 				? "⚔ FLOOR CLEARED"
-				: ev.external
-					? "🏁 RACE OVER"
-					: "☠ YOU FELL";
+				: ev.escaped
+					? "🏃 ESCAPED WITH THE LOOT"
+					: ev.external
+						? "🏁 RACE OVER"
+						: "☠ YOU FELL";
 		if (sub)
 			sub.textContent = ev.victory
 				? `${ev.name} — ${ev.gold} gold banked`
-				: ev.external
-					? `${ev.winner} felled the boss first · your ${ev.gold} gold is banked`
-					: `${ev.name} claims another adventurer · ${ev.gold} gold banked`;
-		endcard.classList.toggle("win", ev.victory);
+				: ev.escaped
+					? `Outran the collapse — ${ev.gold} gold banked (+25% bonus)`
+					: ev.external
+						? `${ev.winner} felled the boss first · your ${ev.gold} gold is banked`
+						: `${ev.name} claims another adventurer · ${ev.gold} gold banked`;
+		endcard.classList.toggle("win", ev.victory || ev.escaped);
 		endcard.hidden = false;
 
 		const runId = await store.makeUniqueId();
@@ -580,22 +590,57 @@ export async function mountApp(
 		}
 	}
 
+	// Escape-window banner: "<winner> felled the boss — escape! 0:NN"
+	let escapeTicker: ReturnType<typeof setInterval> | undefined;
+	function clearEscapeBanner(): void {
+		if (escapeTicker) clearInterval(escapeTicker);
+		escapeTicker = undefined;
+		const banner = $("escapeBanner");
+		if (banner) banner.hidden = true;
+	}
+	unsubs.push(clearEscapeBanner);
+	function showEscapeBanner(winner: string, seconds: number): void {
+		clearEscapeBanner();
+		const banner = $("escapeBanner");
+		if (!banner) return;
+		const deadline = Date.now() + seconds * 1000;
+		const render = () => {
+			const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+			banner.innerHTML = `🏁 <b>${winner}</b> felled the boss — escape to the entrance ring! <b>0:${String(left).padStart(2, "0")}</b>`;
+			if (left <= 0) clearEscapeBanner();
+		};
+		banner.hidden = false;
+		render();
+		escapeTicker = setInterval(render, 500);
+	}
+
 	function onGameEvent(ev: GameEvent): void {
 		if (destroyed) return;
 		if (ev.type === "hud") {
 			updateHud(ev);
 			presence.hp = ev.hp;
 			presence.gold = ev.gold;
+			if (ev.over) clearEscapeBanner();
 			if (!ev.over) {
 				presence.over = false;
 				presence.victory = false;
 				hudAgain.hidden = true;
 				endcard.hidden = true;
 			}
+		} else if (ev.type === "escape") {
+			showEscapeBanner(ev.winner, ev.seconds);
+			options.poe?.haptics?.notification("warning");
 		} else if (ev.type === "runStart") {
 			runTrace = [];
 			runStartedAt = Date.now();
 			syncGhosts();
+			// A fresh run on an already-decided floor must re-learn its claims
+			// (the subscription only emits on change).
+			if (engine && latestClaims)
+				engine.game.applyClaims(
+					latestClaims.claims,
+					latestClaims.bossWinnerName,
+				);
 		} else if (ev.type === "pos") {
 			presence.cell = ev.cell;
 			presence.hp = ev.hp;
@@ -764,6 +809,7 @@ export async function mountApp(
 			},
 			(result) => {
 				if (destroyed || !engine) return;
+				latestClaims = result;
 				engine.game.applyClaims(result.claims, result.bossWinnerName);
 			},
 		),

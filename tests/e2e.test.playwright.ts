@@ -173,7 +173,7 @@ test.describe("procedural-dungeon", () => {
 		await expect(frame.locator("#endcard")).toBeHidden();
 	});
 
-	test("multiplayer race: alice fells the boss, bob's run ends with her floor", async ({
+	test("multiplayer race: alice fells the boss, bob gets the escape window", async ({
 		browser,
 	}) => {
 		test.setTimeout(180_000);
@@ -209,7 +209,23 @@ test.describe("procedural-dungeon", () => {
 		await expect(aliceFrame.locator("#dsub")).toContainText("seed 4242");
 		await aliceFrame.locator("#hudForge").click();
 
+		// Bob is live in the same dungeon BEFORE the race is decided. (His page
+		// sits in the background: store subscriptions keep flowing without rAF.)
+		const bobPage = await bobContext.newPage();
+		await bobPage.goto(sessionUrl("pd-shared", "bob"));
+		const bobFrame = await waitForBlobFrame(bobPage);
+		await expect(bobFrame.locator("#dname")).not.toHaveText("—", {
+			timeout: 30_000,
+		});
+		await expect(bobFrame.locator("#dsub")).toContainText("seed 4242", {
+			timeout: 15_000,
+		});
+		// Let bob's run age past the history-sync window so the boss claim
+		// counts as live news, not history.
+		await bobPage.waitForTimeout(4500);
+
 		// Alice marches to the boss and clears the floor.
+		await alicePage.bringToFront();
 		const start = await gameState(aliceFrame);
 		const boss = start.boss as { x: number; y: number };
 		await aliceFrame.evaluate(
@@ -228,29 +244,21 @@ test.describe("procedural-dungeon", () => {
 			.toBe(true);
 		const aliceEnd = await gameState(aliceFrame);
 		expect(aliceEnd.victory).toBe(true);
-		// Let the boss claim + presence flush to the server.
-		await alicePage.waitForTimeout(2000);
 
-		// Bob joins the same floor after the race is decided: his client pulls
-		// the shared claims, his run ends as "race over", and alice shows up
-		// (fallen) in his HUD.
-		const bobPage = await bobContext.newPage();
-		await bobPage.bringToFront();
-		await bobPage.goto(sessionUrl("pd-shared", "bob"));
-		const bobFrame = await waitForBlobFrame(bobPage);
-		await expect(bobFrame.locator("#dname")).not.toHaveText("—", {
-			timeout: 30_000,
+		// Bob's client learns the boss fell mid-run: the escape window opens.
+		await expect(bobFrame.locator("#escapeBanner")).toBeVisible({
+			timeout: 20_000,
 		});
-		await expect(bobFrame.locator("#dsub")).toContainText("seed 4242", {
-			timeout: 15_000,
-		});
-		await expect(bobFrame.locator("#endcard")).toBeVisible({
-			timeout: 30_000,
-		});
-		await expect(bobFrame.locator("#endTitle")).toHaveText(/RACE OVER/);
-		await expect(bobFrame.locator("#endSub")).toContainText(
-			"felled the boss first",
+		await expect(bobFrame.locator("#escapeBanner")).toContainText(
+			"felled the boss",
 		);
+		// Foreground bob: his hero is standing on the entrance ring, so the
+		// escape banks immediately once his render loop resumes.
+		await bobPage.bringToFront();
+		await expect(bobFrame.locator("#endcard")).toBeVisible({
+			timeout: 20_000,
+		});
+		await expect(bobFrame.locator("#endTitle")).toHaveText(/ESCAPED/);
 		await expect(bobFrame.locator(".df-playerchip")).toContainText("☠", {
 			timeout: 15_000,
 		});

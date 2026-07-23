@@ -23,6 +23,7 @@ export type GameEvent =
 	| { type: "claim"; key: string }
 	| { type: "pos"; cell: { x: number; y: number }; hp: number; gold: number }
 	| { type: "profile"; userId: string }
+	| { type: "escape"; winner: string; seconds: number }
 	| {
 			type: "end";
 			victory: boolean;
@@ -31,6 +32,7 @@ export type GameEvent =
 			seed: number;
 			external: boolean;
 			winner: string | null;
+			escaped: boolean;
 	  };
 
 export interface RemotePlayer {
@@ -54,6 +56,7 @@ export interface GameState {
 	over: boolean;
 	victory: boolean;
 	walking: boolean;
+	escaping: boolean;
 	cell: { x: number; y: number };
 	boss: { x: number; y: number } | null;
 	chests: Array<{ x: number; y: number }>;

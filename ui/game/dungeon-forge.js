@@ -2273,7 +2273,7 @@ const GAME = {
   cell:{x:0,y:0}, path:[], stepT:0, speed:6.0,
   defeated:new Set(), opened:new Set(), healed:new Set(),
   pendingEnd:null, deathT:-1, winT:-1, moved:false,
-  claimsVirgin:true,
+  runStartedAt:0, escape:null,
 };
 /* distance-to-boss field for the race meter, rebuilt per forge */
 let bossDist = null, bossDistStart = 1;
@@ -2473,11 +2473,12 @@ function pickupTreasure(c){
 
 function startRun(){
   GAME.active = true; GAME.over = false; GAME.victory = false;
-  GAME.bossTaken = false; GAME.claimsVirgin = true;
+  GAME.bossTaken = false; GAME.runStartedAt = Date.now();
   GAME.hp = MAX_HP; GAME.gold = 0;
   GAME.path = []; GAME.stepT = 0; GAME.moved = false;
   GAME.defeated.clear(); GAME.opened.clear(); GAME.healed.clear();
   GAME.pendingEnd = null; GAME.deathT = -1; GAME.winT = -1;
+  GAME.escape = null;
   const e = D.rooms[D.entrance];
   GAME.cell = { x:e.cx, y:e.cy };
   buildBossDist();
@@ -2662,13 +2663,13 @@ function onEnterCell(c){
 
 /* ---- shared-world sync: claims made by other room members.
    `claims` is [{key, name}] — the claimant's display name lets us narrate
-   the race ("Alice looted a chest") right where it happened. The very first
-   application after a forge is silent: a late joiner shouldn't get a flood
-   of floats for history. ---- */
+   the race ("Alice looted a chest") right where it happened. Claims arriving
+   in the first seconds of a run are history syncing in (late join / reforge)
+   — apply them silently, and treat a boss claim in that window as a decided
+   race rather than an escape window. ---- */
 function applyClaims(claims, bossByOtherName){
   if(!gameRefs) return;
-  const narrate = !GAME.claimsVirgin;
-  GAME.claimsVirgin = false;
+  const narrate = Date.now() - GAME.runStartedAt > 4000;
   for(const c of claims){
     const key = typeof c === 'string' ? c : c.key;
     const name = typeof c === 'string' ? '' : c.name;
@@ -2692,12 +2693,15 @@ function applyClaims(claims, bossByOtherName){
   if(bossByOtherName && !GAME.bossTaken){
     GAME.bossTaken = true;
     hideBossMarker();
-    endRunExternal(bossByOtherName);
+    /* mid-run players get the escape window; a late joiner whose FIRST sync
+       already contains the boss claim missed the race — end immediately */
+    if(narrate) startEscape(bossByOtherName);
+    else endRunExternal(bossByOtherName);
   }
 }
 
 /* another player felled the boss first: the floor race is over — bank what
-   you're carrying */
+   you're carrying (used for late joiners who missed the escape window) */
 function endRunExternal(winnerName){
   if(!GAME.active || GAME.over) { emitHud(); return; }
   GAME.over = true; GAME.victory = false;
@@ -2706,6 +2710,31 @@ function endRunExternal(winnerName){
     floatText(gameRefs.boss.x, gameRefs.boss.y, winnerName + ' felled the boss!', 'df-win');
   emitGame({ type:'fx', kind:'death' });
   GAME.pendingEnd = { at: elapsed + 1.0, winner: winnerName };
+  emitHud();
+}
+
+/* the boss just fell to someone else while you're mid-run: you get a short
+   window to sprint back to the entrance ring and bank a gold bonus */
+const ESCAPE_SECONDS = 25;
+const ESCAPE_BONUS = 0.25;
+function startEscape(winnerName){
+  if(!GAME.active || GAME.over || GAME.escape){ emitHud(); return; }
+  /* wall-clock deadline: keeps counting even while the tab is hidden */
+  GAME.escape = { deadline: Date.now() + ESCAPE_SECONDS*1000, winner: winnerName };
+  if(gameRefs && gameRefs.boss)
+    floatText(gameRefs.boss.x, gameRefs.boss.y, winnerName + ' felled the boss!', 'df-win');
+  emitGame({ type:'escape', winner: winnerName, seconds: ESCAPE_SECONDS });
+  emitHud();
+}
+function bankEscape(){
+  GAME.gold = Math.round(GAME.gold * (1 + ESCAPE_BONUS));
+  GAME.over = true; GAME.victory = false;
+  GAME.path = []; targetMarker.visible = false;
+  const winner = GAME.escape ? GAME.escape.winner : null;
+  GAME.escape = null;
+  floatText(GAME.cell.x, GAME.cell.y, 'ESCAPED  +' + Math.round(ESCAPE_BONUS*100) + '% bonus', 'df-win');
+  emitGame({ type:'fx', kind:'win' });
+  GAME.pendingEnd = { at: elapsed + 0.9, winner, escaped: true };
   emitHud();
 }
 
@@ -2873,12 +2902,24 @@ function updateGame(dt, time){
     GAME.winT += dt;
     hero.rotation.y += dt*6*Math.max(0, 1-GAME.winT);
   }
+  /* escape window: reach the entrance ring before the count hits zero */
+  if(GAME.escape && !GAME.over){
+    const e = D.rooms[D.entrance];
+    if(cheb(GAME.cell, e.cx, e.cy) <= 1){
+      bankEscape();
+    } else if(Date.now() >= GAME.escape.deadline){
+      const winner = GAME.escape.winner;
+      GAME.escape = null;
+      endRunExternal(winner);
+    }
+  }
   if(GAME.pendingEnd && elapsed >= GAME.pendingEnd.at){
     const winner = GAME.pendingEnd.winner || null;
+    const escaped = !!GAME.pendingEnd.escaped;
     GAME.pendingEnd = null;
     emitGame({ type:'end', victory:GAME.victory, gold:GAME.gold,
       name: D ? D.name : '', seed: D ? D.seed : 0,
-      external: !!winner, winner });
+      external: !!winner, winner, escaped });
   }
   updateRemotes(dt, time);
   updateGhosts(dt, time);
@@ -3135,6 +3176,7 @@ const game = {
   state: () => ({
     hp: GAME.hp, maxHp: MAX_HP, gold: GAME.gold,
     over: GAME.over, victory: GAME.victory, walking: GAME.path.length > 0,
+    escaping: !!GAME.escape,
     cell: { ...GAME.cell },
     boss: gameRefs && gameRefs.boss ? { ...gameRefs.boss } : null,
     chests: gameRefs ? gameRefs.chests.map(c => ({ x:c.x, y:c.y })) : [],
