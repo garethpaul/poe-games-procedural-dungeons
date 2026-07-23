@@ -139,6 +139,7 @@ test("recordRun stores the run and keeps the best haul on the leaderboard", asyn
 		gold: 80,
 		victory: false,
 		seed: 7,
+		floorName: "The Test Depths",
 		createdAt: 100,
 	});
 	await store.mutate.recordRun({
@@ -147,6 +148,7 @@ test("recordRun stores the run and keeps the best haul on the leaderboard", asyn
 		gold: 210,
 		victory: true,
 		seed: 8,
+		floorName: "The Test Depths",
 		createdAt: 200,
 	});
 	// A worse later run must NOT lower the leaderboard best.
@@ -156,6 +158,7 @@ test("recordRun stores the run and keeps the best haul on the leaderboard", asyn
 		gold: 40,
 		victory: false,
 		seed: 9,
+		floorName: "The Test Depths",
 		createdAt: 300,
 	});
 
@@ -181,6 +184,7 @@ test("recordRun replay of the same runId is idempotent", async () => {
 		gold: 55,
 		victory: true,
 		seed: 3,
+		floorName: "The Test Depths",
 		createdAt: 100,
 	};
 	await store.mutate.recordRun(input);
@@ -287,4 +291,56 @@ test("saveGhost keeps the best-gold run per floor and stays bounded", async () =
 	});
 	ghost = await store.query((tx) => tx.table("ghosts").get("alice"));
 	expect(ghost).toMatchObject({ gold: 10, floorKey: "floor-b" });
+});
+
+test("recordRun dethronement path runs clean for both takeover and non-takeover", async () => {
+	const harness = createHarness();
+	const alice = await harness.createClient({ userId: "alice" });
+	const bob = await harness.createClient({ userId: "bob" });
+
+	// Alice sets the bar.
+	await alice.store.mutate.recordRun({
+		userId: "alice",
+		runId: "a-1",
+		gold: 100,
+		victory: true,
+		seed: 1,
+		floorName: "The Test Depths",
+		createdAt: 100,
+	});
+	await bob.store.waitForServerData();
+	// Bob dethrones alice (targeted notification path).
+	await bob.store.mutate.recordRun({
+		userId: "bob",
+		runId: "b-1",
+		gold: 150,
+		victory: false,
+		seed: 1,
+		floorName: "The Test Depths",
+		createdAt: 200,
+	});
+	// Bob adds a lower score (no dethronement path).
+	await bob.store.mutate.recordRun({
+		userId: "bob",
+		runId: "b-2",
+		gold: 10,
+		victory: false,
+		seed: 2,
+		floorName: "The Test Depths",
+		createdAt: 300,
+	});
+
+	// Poll until both entries have propagated to bob's client.
+	let sorted: Array<{ userId: string; score: number }> = [];
+	for (let i = 0; i < 50 && sorted.length < 2; i++) {
+		await bob.store.waitForServerData();
+		const board = await bob.store.query((tx) =>
+			getLeaderboard(tx, { leaderboardId: LEADERBOARD_ID }),
+		);
+		sorted = [...board.entries].sort((a, b) => b.score - a.score);
+		if (sorted.length < 2)
+			await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	expect(sorted[0]).toMatchObject({ userId: "bob", score: 150 });
+	expect(sorted[1]).toMatchObject({ userId: "alice", score: 100 });
 });

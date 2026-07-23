@@ -89,13 +89,14 @@ export const tileSchema = defineSchema({
 		},
 		recordRun: {
 			description:
-				"Record a finished dungeon run and persist the player's best gold haul on the leaderboard",
+				"Record a finished dungeon run, persist the player's best gold haul on the leaderboard, and send the high-signal social notifications (dethronement push, victory chat milestone)",
 			input: z.object({
 				userId: z.string(),
 				runId: z.string(),
 				gold: z.number().int().nonnegative(),
 				victory: z.boolean(),
 				seed: z.number().int().nonnegative(),
+				floorName: z.string().max(120),
 				createdAt: z.number(),
 			}),
 		},

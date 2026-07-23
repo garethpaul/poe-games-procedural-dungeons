@@ -544,6 +544,7 @@ export async function mountApp(
 			gold: ev.gold,
 			victory: ev.victory,
 			seed: ev.seed,
+			floorName: ev.name,
 			createdAt: now(),
 		});
 
