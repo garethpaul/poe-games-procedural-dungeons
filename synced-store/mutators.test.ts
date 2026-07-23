@@ -344,3 +344,58 @@ test("recordRun dethronement path runs clean for both takeover and non-takeover"
 	expect(sorted[0]).toMatchObject({ userId: "bob", score: 150 });
 	expect(sorted[1]).toMatchObject({ userId: "alice", score: 100 });
 });
+
+test("giftHeal is idempotent; curseChest is first-wins and rejects opened chests", async () => {
+	const harness = createHarness();
+	const alice = await harness.createClient({ userId: "alice" });
+	const bob = await harness.createClient({ userId: "bob" });
+
+	// Gift replay must not create a second row.
+	const gift = { id: "g-1", from: "alice", to: "bob", hp: 20, at: 100 };
+	await alice.store.mutate.giftHeal(gift);
+	await alice.store.mutate.giftHeal(gift);
+	const gifts = await alice.store.query((tx) =>
+		tx.table("gifts").scan().values().toArray(),
+	);
+	expect(gifts.length).toBe(1);
+
+	// First curse wins.
+	await alice.store.mutate.curseChest({ key: "chest-4", by: "alice", at: 10 });
+	await waitForKeyMatch(bob.store, {
+		table: "curses",
+		key: "chest-4",
+		match: (c: { by: string }) => c.by === "alice",
+	});
+	await bob.store.mutate.curseChest({ key: "chest-4", by: "bob", at: 20 });
+	await bob.store.waitForServerData();
+	const curse = await bob.store.query((tx) => tx.table("curses").get("chest-4"));
+	expect(curse).toMatchObject({ by: "alice" });
+
+	// An already-claimed chest can't be trapped after the fact.
+	await alice.store.mutate.claimPoi({ userId: "alice", key: "chest-7", at: 30 });
+	await alice.store.mutate.curseChest({ key: "chest-7", by: "alice", at: 40 });
+	const late = await alice.store.query((tx) => tx.table("curses").get("chest-7"));
+	expect(late).toBeUndefined();
+});
+
+test("reforge wipes gifts and curses with the claims", async () => {
+	const harness = createHarness();
+	const { store } = await harness.createClient({ userId: "alice" });
+
+	await store.mutate.giftHeal({ id: "g-2", from: "alice", to: "bob", hp: 20, at: 1 });
+	await store.mutate.curseChest({ key: "chest-1", by: "alice", at: 2 });
+	await store.mutate.setForgeSettings({
+		seed: 11,
+		theme: "ancient",
+		rooms: 20,
+		loopiness: 10,
+		decor: 50,
+		updatedAt: 100,
+		updatedBy: "alice",
+	});
+
+	const gifts = await store.query((tx) => tx.table("gifts").scan().values().toArray());
+	const curses = await store.query((tx) => tx.table("curses").scan().values().toArray());
+	expect(gifts.length).toBe(0);
+	expect(curses.length).toBe(0);
+});

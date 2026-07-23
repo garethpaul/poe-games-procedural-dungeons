@@ -1,5 +1,11 @@
 import { clampSettings, FORGE_KEY, MAX_HP } from "../constants";
-import type { Claim, ForgeSettingsRow, Player } from "../schema";
+import type {
+	Claim,
+	Curse,
+	ForgeSettingsRow,
+	Gift,
+	Player,
+} from "../schema";
 import type { AppMutator } from "./types";
 
 // Writes the shared forge settings. Values are clamped rather than rejected so
@@ -27,6 +33,14 @@ export const setForgeSettings: AppMutator<"setForgeSettings"> = async (
 		.values()
 		.toArray()) as Claim[];
 	for (const claim of claims) await ctx.table("claims").delete(claim.key);
+	const gifts = (await ctx.table("gifts").scan().values().toArray()) as Gift[];
+	for (const gift of gifts) await ctx.table("gifts").delete(gift.id);
+	const curses = (await ctx
+		.table("curses")
+		.scan()
+		.values()
+		.toArray()) as Curse[];
+	for (const curse of curses) await ctx.table("curses").delete(curse.key);
 
 	const players = (await ctx
 		.table("players")

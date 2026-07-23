@@ -80,6 +80,18 @@ export interface GameApi {
 	setGhosts: (ghosts: GhostRun[]) => void;
 	/** Living players' progress toward the boss, for the race meter. */
 	raceProgress: () => Array<{ userId: string; pct: number; color: string }>;
+	/** Debit gold spent on interplay actions (gifts, curses). */
+	spendGold: (n: number) => void;
+	/** Apply a heal another player sent. */
+	receiveHeal: (hp: number, fromName: string) => void;
+	/** Sync mimic curses; own curses render a curser-only shimmer. */
+	setCurses: (
+		curses: Array<{ key: string; name: string; mine: boolean }>,
+	) => void;
+	/** Nearest untrapped, unopened chest to the hero (trap target). */
+	curseNearestChest: () => { key: string; x: number; y: number } | null;
+	/** Float a short message at the hero (errors, confirmations). */
+	say: (text: string, cls?: string) => void;
 }
 
 export interface DungeonForgeOptions {

@@ -252,13 +252,18 @@ test.describe("procedural-dungeon", () => {
 		await expect(bobFrame.locator("#escapeBanner")).toContainText(
 			"felled the boss",
 		);
-		// Foreground bob: his hero is standing on the entrance ring, so the
-		// escape banks immediately once his render loop resumes.
+		// Bob's hero is standing on the entrance ring, so the escape banks as
+		// soon as his (heartbeat-throttled) game loop notices — possibly before
+		// we foreground him, after which the host may already have resolved the
+		// end overlay and hidden the card. Assert the terminal state itself:
+		// the run is over and the endcard was filled with the ESCAPED copy.
 		await bobPage.bringToFront();
-		await expect(bobFrame.locator("#endcard")).toBeVisible({
-			timeout: 20_000,
+		await expect
+			.poll(async () => (await gameState(bobFrame)).over, { timeout: 30_000 })
+			.toBe(true);
+		await expect(bobFrame.locator("#endTitle")).toHaveText(/ESCAPED/, {
+			timeout: 15_000,
 		});
-		await expect(bobFrame.locator("#endTitle")).toHaveText(/ESCAPED/);
 		await expect(bobFrame.locator(".df-playerchip")).toContainText("☠", {
 			timeout: 15_000,
 		});

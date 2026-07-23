@@ -1,4 +1,6 @@
 import { claimPoi } from "./claim-poi";
+import { curseChest } from "./curse-chest";
+import { giftHeal } from "./gift-heal";
 import { recordRun } from "./record-run";
 import { saveGhost } from "./save-ghost";
 import { setForgeSettings } from "./set-forge-settings";
@@ -11,6 +13,8 @@ export const tileMutators: AppMutators = {
 	updatePlayer,
 	claimPoi,
 	saveGhost,
+	giftHeal,
+	curseChest,
 };
 
 export type { AppMutator, AppMutators } from "./types";

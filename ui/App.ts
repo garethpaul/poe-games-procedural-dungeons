@@ -5,8 +5,11 @@ import defeatArtUrl from "./art/defeat.jpg?url";
 import type { AppStoreClient } from "../client";
 import {
 	clampSettings,
+	CURSE_COST,
 	DEFAULT_FORGE_SETTINGS,
 	GHOST_TRACE_MAX,
+	GIFT_COST,
+	GIFT_HP,
 	LEADERBOARD_ID,
 	MAX_HP,
 	PRESENCE_THROTTLE_MS,
@@ -16,8 +19,10 @@ import {
 import { readForgeSettings } from "../synced-store/data/index";
 import type {
 	Claim,
+	Curse,
 	ForgeSettingsRow,
 	Ghost,
+	Gift,
 	Player,
 } from "../synced-store/schema";
 import type {
@@ -97,6 +102,7 @@ const APP_HTML = `
 		</div>
 		<div class="df-hud-right">
 			<button class="df-iconbtn" id="hudAgain" hidden>⚔ PLAY AGAIN</button>
+			<button class="df-iconbtn" id="hudTrap" aria-label="Trap the nearest chest" title="Trap the nearest chest (15g)">🪤</button>
 			<button class="df-iconbtn" id="hudInvite" aria-label="Invite players" title="Invite players">👥+</button>
 			<button class="df-iconbtn" id="hudHelp" aria-label="How to play" title="How to play">?</button>
 			<button class="df-iconbtn" id="hudForge" aria-label="Forge settings" title="Forge settings">⚒</button>
@@ -132,6 +138,19 @@ const APP_HTML = `
 				<tr>
 					<td><span class="dot" style="background:#b03a2a"></span> Spires with a red ☠</td>
 					<td>enemies — walking near one costs 6–20&nbsp;HP (they do drop gold)</td>
+				</tr>
+				<tr class="df-help-head"><th colspan="2">✋ PLAY WITH PEOPLE</th></tr>
+				<tr>
+					<td>💝 Gift a heal</td>
+					<td>tap a player's chip — 25g sends them +20&nbsp;HP</td>
+				</tr>
+				<tr>
+					<td>🪤 Set a mimic</td>
+					<td>15g traps the nearest chest; a rival who opens it gets bitten (only you see the shimmer)</td>
+				</tr>
+				<tr>
+					<td>🏁 Boss falls first?</td>
+					<td>you get 25s to escape to the entrance ring and bank +25% gold</td>
 				</tr>
 			</tbody>
 		</table>
@@ -352,6 +371,25 @@ export async function mountApp(
 	$("hudForge")?.addEventListener("click", () => {
 		panel.hidden = !panel.hidden;
 	});
+	// Trap the nearest chest with a mimic (only the curser sees the shimmer).
+	$("hudTrap")?.addEventListener("click", () => {
+		if (!engine) return;
+		const state = engine.game.state();
+		if (state.over) return;
+		if (state.gold < CURSE_COST) {
+			engine.game.say(`Need ${CURSE_COST}g to set a mimic`, "df-hit");
+			return;
+		}
+		const target = engine.game.curseNearestChest();
+		if (!target) {
+			engine.game.say("No untrapped chest nearby", "df-hit");
+			return;
+		}
+		engine.game.spendGold(CURSE_COST);
+		void store.mutate.curseChest({ key: target.key, by: userId, at: now() });
+		engine.game.say("Mimic set — only you can see it", "df-heal");
+	});
+
 	$("hudInvite")?.addEventListener("click", () => {
 		void options.poe
 			?.pickMembers?.({
@@ -734,12 +772,66 @@ export async function mountApp(
 					chip.type = "button";
 					chip.className = "df-playerchip";
 					chip.textContent = `${p.over ? "☠ " : ""}${p.name} · ${p.gold}g`;
-					chip.addEventListener("click", () =>
-						options.poe?.openProfile?.(p.userId),
-					);
+					chip.addEventListener("click", (e) => {
+						e.stopPropagation();
+						openChipMenu(chip, p);
+					});
 					return chip;
 				}),
 		);
+	}
+
+	// Mini-menu on a player chip: view their profile or gift them a heal.
+	const chipMenu = document.createElement("div");
+	chipMenu.className = "df-chipmenu";
+	chipMenu.hidden = true;
+	app.appendChild(chipMenu);
+	app.addEventListener("click", () => {
+		chipMenu.hidden = true;
+	});
+	function openChipMenu(
+		anchor: HTMLElement,
+		p: { userId: string; name: string; over: boolean },
+	): void {
+		const profileBtn = document.createElement("button");
+		profileBtn.type = "button";
+		profileBtn.className = "df-iconbtn";
+		profileBtn.textContent = `👤 ${p.name}'s profile`;
+		profileBtn.addEventListener("click", () => {
+			chipMenu.hidden = true;
+			options.poe?.openProfile?.(p.userId);
+		});
+		const giftBtn = document.createElement("button");
+		giftBtn.type = "button";
+		giftBtn.className = "df-iconbtn";
+		giftBtn.textContent = `💝 Gift +${GIFT_HP} HP · ${GIFT_COST}g`;
+		giftBtn.disabled = p.over;
+		giftBtn.addEventListener("click", () => {
+			chipMenu.hidden = true;
+			void (async () => {
+				if (!engine) return;
+				if (engine.game.state().gold < GIFT_COST) {
+					engine.game.say(`Need ${GIFT_COST}g to gift a heal`, "df-hit");
+					return;
+				}
+				engine.game.spendGold(GIFT_COST);
+				const id = await store.makeUniqueId();
+				void store.mutate.giftHeal({
+					id,
+					from: userId,
+					to: p.userId,
+					hp: GIFT_HP,
+					at: now(),
+				});
+				engine.game.say(`Heal sent to ${p.name}`, "df-heal");
+			})();
+		});
+		chipMenu.replaceChildren(profileBtn, giftBtn);
+		const rect = anchor.getBoundingClientRect();
+		const appRect = app.getBoundingClientRect();
+		chipMenu.style.left = `${rect.left - appRect.left}px`;
+		chipMenu.style.top = `${rect.bottom - appRect.top + 6}px`;
+		chipMenu.hidden = false;
 	}
 	const presenceTicker = setInterval(refreshPresence, 15_000);
 	unsubs.push(() => clearInterval(presenceTicker));
@@ -811,6 +903,71 @@ export async function mountApp(
 				if (destroyed || !engine) return;
 				latestClaims = result;
 				engine.game.applyClaims(result.claims, result.bossWinnerName);
+			},
+		),
+	);
+
+	// Incoming gift heals: apply each unseen gift addressed to me, once. The
+	// first emit is history syncing in (reboot / rejoin) — seed the seen-set
+	// without healing, so old gifts never double-apply.
+	const appliedGifts = new Set<string>();
+	let giftsSeeded = false;
+	unsubs.push(
+		store.subscribe(
+			async (ctx) => {
+				const rows = (await ctx
+					.table("gifts")
+					.scan()
+					.values()
+					.toArray()) as Gift[];
+				const mine = rows.filter((g) => g.to === userId);
+				return Promise.all(
+					mine.map(async (g) => {
+						const info = (await ctx.table("$userInfo").get(g.from)) as
+							| { displayName?: string }
+							| undefined;
+						return { ...g, fromName: info?.displayName ?? "A friend" };
+					}),
+				);
+			},
+			(gifts) => {
+				if (destroyed || !engine) return;
+				for (const g of gifts) {
+					if (appliedGifts.has(g.id)) continue;
+					appliedGifts.add(g.id);
+					if (giftsSeeded) engine.game.receiveHeal(g.hp, g.fromName);
+				}
+				giftsSeeded = true;
+			},
+		),
+	);
+
+	// Mimic curses: the engine springs them on chest-open; only your own show
+	// a shimmer.
+	unsubs.push(
+		store.subscribe(
+			async (ctx) => {
+				const rows = (await ctx
+					.table("curses")
+					.scan()
+					.values()
+					.toArray()) as Curse[];
+				return Promise.all(
+					rows.map(async (c) => {
+						const info = (await ctx.table("$userInfo").get(c.by)) as
+							| { displayName?: string }
+							| undefined;
+						return {
+							key: c.key,
+							name: info?.displayName ?? "Someone",
+							mine: c.by === userId,
+						};
+					}),
+				);
+			},
+			(curses) => {
+				if (destroyed || !engine) return;
+				engine.game.setCurses(curses);
 			},
 		),
 	);

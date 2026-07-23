@@ -62,6 +62,26 @@ export const ghostSchema = z.object({
 });
 export type Ghost = z.infer<typeof ghostSchema>;
 
+// A heal one player sent another. Keyed by gift id; cleared on reforge.
+export const giftSchema = z.object({
+	id: z.string(),
+	from: z.string(),
+	to: z.string(),
+	hp: z.number().int().positive(),
+	at: z.number(),
+});
+export type Gift = z.infer<typeof giftSchema>;
+
+// A mimic trap armed on an unopened chest. Keyed by the chest's claim key
+// ("chest-<i>"); first curse wins; cleared on reforge. Only the curser sees
+// the shimmer — for everyone else the chest looks ordinary. That's the bluff.
+export const curseSchema = z.object({
+	key: z.string(),
+	by: z.string(),
+	at: z.number(),
+});
+export type Curse = z.infer<typeof curseSchema>;
+
 // First-claim-wins ownership of a point of interest on the current floor.
 // Keyed by the POI key ("spawn-3", "chest-1", "shrine-0", "boss"); cleared
 // whenever the floor reforges.
@@ -80,6 +100,8 @@ export const tileSchema = defineSchema({
 		players: { schema: table(playerSchema) },
 		claims: { schema: table(claimSchema) },
 		ghosts: { schema: table(ghostSchema) },
+		gifts: { schema: table(giftSchema) },
+		curses: { schema: table(curseSchema) },
 	},
 	mutators: {
 		setForgeSettings: {
@@ -118,6 +140,16 @@ export const tileSchema = defineSchema({
 			description:
 				"Save the player's run trace as a replayable ghost — keeps their best-gold run per floor",
 			input: ghostSchema,
+		},
+		giftHeal: {
+			description:
+				"Send another player a heal (idempotent per gift id); the recipient's client applies the HP",
+			input: giftSchema,
+		},
+		curseChest: {
+			description:
+				"Arm a mimic trap on an unopened chest — first curse wins; rejected if the chest is already claimed",
+			input: curseSchema,
 		},
 	},
 });

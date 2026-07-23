@@ -2487,6 +2487,10 @@ function startRun(){
   hero.position.set(gwx(e.cx), 0, gwz(e.cy));
   /* remote heroes re-place themselves at their next synced cell */
   for(const r of remotes.values()){ r.cell = null; r.warned = false; }
+  /* shimmer meshes lived in the disposed level group — drop stale handles */
+  for(const m of curseShimmers.values()){ m.geometry.dispose(); m.material.dispose(); }
+  curseShimmers.clear();
+  curseMap.clear();
   targetMarker.visible = false;
   emitHud();
   emitGame({ type:'runStart', seed: D.seed });
@@ -2626,10 +2630,21 @@ function onEnterCell(c){
     if(cheb(c, ch.x, ch.y) > 1) continue;
     GAME.opened.add(i);
     hideInstances(ch.refs);
-    emitGame({ type:'claim', key:'chest-'+i });
-    GAME.gold += CHEST_GOLD;
-    floatText(ch.x, ch.y, '+' + CHEST_GOLD + ' gold', 'df-gold');
-    emitGame({ type:'fx', kind:'gold' });
+    const key = 'chest-' + i;
+    removeShimmer(key);
+    emitGame({ type:'claim', key });
+    const curse = curseMap.get(key);
+    if(curse && !curse.mine){
+      /* sprung: someone trapped this chest */
+      floatText(ch.x, ch.y, 'MIMIC!  (cursed by ' + curse.name + ')', 'df-hit');
+      const died = damageHero(MIMIC_DMG, ch.x, ch.y);
+      emitGame({ type:'fx', kind:'hit' });
+      if(died) return;
+    } else {
+      GAME.gold += CHEST_GOLD;
+      floatText(ch.x, ch.y, '+' + CHEST_GOLD + ' gold', 'df-gold');
+      emitGame({ type:'fx', kind:'gold' });
+    }
   }
   for(let i=0;i<gameRefs.shrines.length;i++){
     if(GAME.healed.has(i)) continue;
@@ -2661,6 +2676,78 @@ function onEnterCell(c){
   emitHud();
 }
 
+/* ---- interplay: gift heals + mimic curses ---- */
+const MIMIC_DMG = 12;
+/* chest claim key -> {name, mine}; `mine` curses get a shimmer only the
+   curser can see — for rivals the chest looks ordinary (that's the bluff) */
+const curseMap = new Map();
+const curseShimmers = new Map();   /* key -> mesh */
+function say(text, cls){
+  floatText(GAME.cell.x, GAME.cell.y, text, cls || 'df-heal');
+}
+function spendGold(n){
+  GAME.gold = Math.max(0, GAME.gold - n);
+  emitHud();
+}
+function receiveHeal(hp, fromName){
+  if(!GAME.active || GAME.over) return;
+  GAME.hp = Math.min(MAX_HP, GAME.hp + hp);
+  floatText(GAME.cell.x, GAME.cell.y, '+' + hp + ' HP from ' + fromName, 'df-heal');
+  emitGame({ type:'fx', kind:'heal' });
+  emitHud();
+}
+function chestByKey(key){
+  const i = parseInt(key.split('-')[1], 10);
+  return gameRefs && gameRefs.chests[i] ? { i, chest: gameRefs.chests[i] } : null;
+}
+function setCurses(list){
+  curseMap.clear();
+  const wanted = new Set();
+  for(const c of list){
+    curseMap.set(c.key, { name: c.name, mine: !!c.mine });
+    if(!c.mine || !gameRefs) continue;
+    const hit = chestByKey(c.key);
+    if(!hit || GAME.opened.has(hit.i)) continue;
+    wanted.add(c.key);
+    if(!curseShimmers.has(c.key)){
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(0.34, 0.46, 18).rotateX(-Math.PI/2).translate(0, 0.05, 0),
+        new THREE.MeshBasicMaterial({ color:0x9b6cf0, transparent:true, opacity:0.7 }));
+      m.material.toneMapped = false;
+      m.position.set(gwx(hit.chest.x), 0, gwz(hit.chest.y));
+      group.add(m);
+      curseShimmers.set(c.key, m);
+    }
+  }
+  for(const [key, m] of curseShimmers){
+    if(wanted.has(key)) continue;
+    if(m.parent) m.parent.remove(m);
+    m.geometry.dispose(); m.material.dispose();
+    curseShimmers.delete(key);
+  }
+}
+function removeShimmer(key){
+  const m = curseShimmers.get(key);
+  if(!m) return;
+  if(m.parent) m.parent.remove(m);
+  m.geometry.dispose(); m.material.dispose();
+  curseShimmers.delete(key);
+}
+/* nearest unopened, uncursed chest within reach of the hero — trap target */
+function curseNearestChest(){
+  if(!gameRefs) return null;
+  let best = null, bestD = 9;
+  for(let i=0;i<gameRefs.chests.length;i++){
+    if(GAME.opened.has(i)) continue;
+    const key = 'chest-' + i;
+    if(curseMap.has(key)) continue;
+    const ch = gameRefs.chests[i];
+    const d = cheb(GAME.cell, ch.x, ch.y);
+    if(d < bestD){ bestD = d; best = { key, x: ch.x, y: ch.y }; }
+  }
+  return best;
+}
+
 /* ---- shared-world sync: claims made by other room members.
    `claims` is [{key, name}] — the claimant's display name lets us narrate
    the race ("Alice looted a chest") right where it happened. Claims arriving
@@ -2683,7 +2770,12 @@ function applyClaims(claims, bossByOtherName){
     } else if(kind==='chest' && gameRefs.chests[i] && !GAME.opened.has(i)){
       GAME.opened.add(i); hideInstances(gameRefs.chests[i].refs);
       const ch = gameRefs.chests[i];
-      if(narrate && name) floatText(ch.x, ch.y, name + ' looted a chest', 'df-rival');
+      const curse = curseMap.get(key);
+      removeShimmer(key);
+      if(narrate && curse && curse.mine)
+        floatText(ch.x, ch.y, 'Your mimic bit ' + (name || 'someone') + '!', 'df-win');
+      else if(narrate && name)
+        floatText(ch.x, ch.y, name + ' looted a chest', 'df-rival');
     } else if(kind==='shrine' && gameRefs.shrines[i] && !GAME.healed.has(i)){
       GAME.healed.add(i);
       const sh = gameRefs.shrines[i];
@@ -3195,6 +3287,12 @@ const game = {
   setRemotePlayers: (list) => setRemotePlayers(list),
   setGhosts: (list) => setGhosts(list),
   raceProgress: () => raceProgress(),
+  /* interplay */
+  spendGold: (n) => spendGold(n),
+  receiveHeal: (hp, fromName) => receiveHeal(hp, fromName),
+  setCurses: (list) => setCurses(list),
+  curseNearestChest: () => curseNearestChest(),
+  say: (text, cls) => say(text, cls),
 };
 /* expose for Playwright e2e — same-iframe global, harmless in production */
 try { window.__dfGame = game; } catch { /* no-op */ }

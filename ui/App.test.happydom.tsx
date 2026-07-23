@@ -78,6 +78,11 @@ function stubEngineFactory(): {
 					setRemotePlayers: () => {},
 					setGhosts: () => {},
 					raceProgress: () => [],
+					spendGold: () => {},
+					receiveHeal: () => {},
+					setCurses: () => {},
+					curseNearestChest: () => null,
+					say: () => {},
 				},
 			},
 		};

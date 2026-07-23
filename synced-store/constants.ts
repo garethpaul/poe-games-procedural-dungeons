@@ -13,6 +13,11 @@ export const MAX_HP = 100;
 export const PRESENCE_THROTTLE_MS = 600;
 /** Hard cap on ghost replay traces — bounded, downsampled, never per-frame. */
 export const GHOST_TRACE_MAX = 240;
+/** Gift heal: what the sender pays and what the recipient gets. */
+export const GIFT_COST = 25;
+export const GIFT_HP = 20;
+/** Mimic curse: cost to trap a chest. */
+export const CURSE_COST = 15;
 
 export const THEME_OPTIONS = [
 	"auto",
