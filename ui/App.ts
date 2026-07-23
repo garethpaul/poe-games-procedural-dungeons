@@ -83,7 +83,7 @@ const APP_HTML = `
 		</div>
 	</div>
 
-	<div class="df-hint" id="hint">Tap a tile to walk · grab 🪙 chests · <b style="color:var(--blood)">red spires</b> are enemies · reach the boss crystal alive</div>
+	<div class="df-hint" id="hint">Tap a tile to walk · grab 🪙 chests · <b style="color:var(--blood)">☠ = enemies</b> · reach the big pulsing ☠ alive</div>
 
 	<div class="df-help" id="help" hidden>
 		<b>How to play</b>
@@ -100,12 +100,12 @@ const APP_HTML = `
 					<td>full heal, once each</td>
 				</tr>
 				<tr>
-					<td><span class="dot" style="background:var(--blood)"></span> The giant red crystal</td>
+					<td><span class="dot" style="background:var(--gold)"></span> Big pulsing gold ☠</td>
 					<td><b>the BOSS</b> — reach it alive to win the floor (costs 30&nbsp;HP)</td>
 				</tr>
 				<tr class="df-help-head df-help-bad"><th colspan="2">✗ THESE COST YOU BLOOD</th></tr>
 				<tr>
-					<td><span class="dot" style="background:#b03a2a"></span> Small red/violet spires</td>
+					<td><span class="dot" style="background:#b03a2a"></span> Spires with a red ☠</td>
 					<td>enemies — walking near one costs 6–20&nbsp;HP (they do drop gold)</td>
 				</tr>
 			</tbody>

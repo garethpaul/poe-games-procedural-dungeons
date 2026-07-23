@@ -1039,7 +1039,22 @@ function makeGlowTex(){
   g.fillStyle=grd; g.beginPath(); g.arc(64,64,62,0,6.2832); g.fill();
   return new THREE.CanvasTexture(cv);
 }
-const TEX = { stone:makeStoneTex(), crack:makeCrackTex(), rune:makeRuneTex(), swirl:makeSwirlTex(), shaft:makeShaftTex(), glow:makeGlowTex() };
+function makeSkullTex(){
+  /* tiny white skull on transparent — tinted per marker material */
+  const [cv,g] = makeCanvas(64);
+  g.fillStyle='#fff';
+  g.beginPath(); g.arc(32,26,17,0,6.2832); g.fill();          /* cranium */
+  g.fillRect(22,32,20,14);                                     /* jaw */
+  g.fillStyle='rgba(0,0,0,1)';
+  g.globalCompositeOperation='destination-out';
+  g.beginPath(); g.arc(25,26,4.6,0,6.2832); g.fill();          /* eyes */
+  g.beginPath(); g.arc(39,26,4.6,0,6.2832); g.fill();
+  g.beginPath(); g.moveTo(32,31); g.lineTo(29,37); g.lineTo(35,37); g.closePath(); g.fill(); /* nose */
+  for(const x of [26,31,36]) g.fillRect(x,40,2.4,6);           /* teeth gaps */
+  g.globalCompositeOperation='source-over';
+  return new THREE.CanvasTexture(cv);
+}
+const TEX = { stone:makeStoneTex(), crack:makeCrackTex(), rune:makeRuneTex(), swirl:makeSwirlTex(), shaft:makeShaftTex(), glow:makeGlowTex(), skull:makeSkullTex() };
 
 /* ================================================================
    MATERIAL KIT — named roles, shared across all instanced sets
@@ -1442,7 +1457,7 @@ let overlay = null;
 let lights = [];
 let floorColorsBase = null, floorColorsHeat = null;
 let animT = Infinity, animEnd = 0, animating = false;
-let fx = { liquids:[], shafts:[], spinners:[], parts:null };
+let fx = { liquids:[], shafts:[], spinners:[], parts:null, markers:null };
 let levelGeos = [];
 /* game-layer references into the instanced sets, rebuilt per forge */
 let gameRefs = null;
@@ -1460,7 +1475,7 @@ function disposeLevel(){
   levelGeos = [];
   group = null; meshes = {}; overlay = null;
   lights = [];
-  fx = { liquids:[], shafts:[], spinners:[], parts:null };
+  fx = { liquids:[], shafts:[], spinners:[], parts:null, markers:null };
 }
 
 function applyThemeEnv(TH){
@@ -2004,6 +2019,7 @@ function setFxRamp(v){
   matSkirt.opacity = 0.5*v;
   matRune.opacity = 0.85*v;
   matPortal.opacity = 0.9*v;
+  markerRamp = v;
 }
 function setOverlayStatic(){
   setFxRamp(1);
@@ -2141,6 +2157,7 @@ function forge(animate){
   };
   const d = generateDungeon(params);
   buildScene(d);
+  buildMarkers();
   applyObjectVis();
   const TH = THEMES[themeKey];
   el.vTheme.textContent = themeSel==='auto' ? 'AUTO \u00b7 '+TH.label : TH.label;
@@ -2194,6 +2211,20 @@ function liveUpdate(time, tt){
       _m.compose(_p,_q,_s); cm.setMatrixAt(i,_m);
     }
     cm.instanceMatrix.needsUpdate = true;
+  }
+  /* threat markers scale + fade with zoom: crisp at play zoom, receding at
+     the whole-map overview so they don't swamp the miniature. The boss
+     skull pulses and stays prominent at every zoom — it's the goal. */
+  if(fx.markers){
+    const pr = renderer.getPixelRatio(), z = cam.zoom;
+    fx.markers.enemyMat.size = pr * Math.min(16, Math.max(7, 5.5*z));
+    fx.markers.enemyMat.opacity =
+      0.88 * markerRamp * Math.min(1, Math.max(0.2, (z - 0.35)/1.5));
+    if(fx.markers.bossMat && fx.markers.bossPts.visible){
+      fx.markers.bossMat.size =
+        pr * Math.min(30, Math.max(18, 9*z)) * (1 + 0.14*Math.sin(time*3.2));
+      fx.markers.bossMat.opacity = 0.95 * markerRamp;
+    }
   }
   liquidMat.uniforms.uTime.value = time;
   partMat.uniforms.uTime.value = time;
@@ -2291,6 +2322,52 @@ function hideInstances(refs){
   }
 }
 
+/* ---- threat markers: a ☠ floats over every living enemy pack, and a big
+   pulsing gold ☠ crowns the boss crystal, so "avoid vs goal" reads at a
+   glance from any zoom. One Points cloud = one draw call. ---- */
+const MARKER_H = { 1:1.35, 2:1.95, 3:2.85 };
+function buildMarkers(){
+  const pr = renderer.getPixelRatio();
+  const n = gameRefs.spawns.length;
+  const pos = new Float32Array(Math.max(n,1)*3);
+  gameRefs.spawns.forEach((sp,i)=>{
+    pos[i*3] = gwx(sp.x); pos[i*3+1] = MARKER_H[sp.tier] || 1.6; pos[i*3+2] = gwz(sp.y);
+  });
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  const enemyMat = new THREE.PointsMaterial({
+    map:TEX.skull, color:0xff7468, transparent:true, opacity:0,
+    size:15*pr, sizeAttenuation:false, depthTest:false, depthWrite:false });
+  enemyMat.toneMapped = false;
+  const pts = new THREE.Points(g, enemyMat);
+  pts.renderOrder = 4; pts.frustumCulled = false;
+  group.add(pts);
+
+  let bossPts = null, bossMat = null;
+  if(gameRefs.boss){
+    const bg = new THREE.BufferGeometry();
+    bg.setAttribute('position', new THREE.BufferAttribute(
+      new Float32Array([gwx(gameRefs.boss.x), 3.4, gwz(gameRefs.boss.y)]),3));
+    bossMat = new THREE.PointsMaterial({
+      map:TEX.skull, color:0xffd76b, transparent:true, opacity:0,
+      size:26*pr, sizeAttenuation:false, depthTest:false, depthWrite:false });
+    bossMat.toneMapped = false;
+    bossPts = new THREE.Points(bg, bossMat);
+    bossPts.renderOrder = 4; bossPts.frustumCulled = false;
+    group.add(bossPts);
+  }
+  fx.markers = { pts, enemyMat, bossPts, bossMat };
+}
+let markerRamp = 0;   /* build-reveal fade, recorded by setFxRamp */
+function hideEnemyMarker(i){
+  if(!fx.markers) return;
+  const attr = fx.markers.pts.geometry.attributes.position;
+  if(i*3+1 < attr.array.length){ attr.array[i*3+1] = -999; attr.needsUpdate = true; }
+}
+function hideBossMarker(){
+  if(fx.markers && fx.markers.bossPts) fx.markers.bossPts.visible = false;
+}
+
 function startRun(){
   GAME.active = true; GAME.over = false; GAME.victory = false;
   GAME.bossTaken = false;
@@ -2385,6 +2462,7 @@ function onEnterCell(c){
     if(cheb(c, sp.x, sp.y) > 1) continue;
     GAME.defeated.add(i);
     hideInstances(sp.refs);
+    hideEnemyMarker(i);
     emitGame({ type:'claim', key:'spawn-'+i });
     const died = damageHero(TIER_DMG[sp.tier], sp.x, sp.y);
     emitGame({ type:'fx', kind:'hit' });
@@ -2423,6 +2501,7 @@ function onEnterCell(c){
       GAME.over = true; GAME.victory = true;
       GAME.path = []; targetMarker.visible = false;
       GAME.winT = 0;
+      hideBossMarker();
       emitGame({ type:'claim', key:'boss' });
       floatText(gameRefs.boss.x, gameRefs.boss.y, 'BOSS FELLED  +' + BOSS_GOLD + 'g', 'df-win');
       emitGame({ type:'fx', kind:'win' });
@@ -2440,6 +2519,7 @@ function applyClaims(keys, bossByOtherName){
     const i = parseInt(idxStr, 10);
     if(kind==='spawn' && gameRefs.spawns[i] && !GAME.defeated.has(i)){
       GAME.defeated.add(i); hideInstances(gameRefs.spawns[i].refs);
+      hideEnemyMarker(i);
     } else if(kind==='chest' && gameRefs.chests[i] && !GAME.opened.has(i)){
       GAME.opened.add(i); hideInstances(gameRefs.chests[i].refs);
     } else if(kind==='shrine' && gameRefs.shrines[i] && !GAME.healed.has(i)){
@@ -2448,6 +2528,7 @@ function applyClaims(keys, bossByOtherName){
   }
   if(bossByOtherName && !GAME.bossTaken){
     GAME.bossTaken = true;
+    hideBossMarker();
     endRunExternal(bossByOtherName);
   }
 }
