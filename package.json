@@ -1,0 +1,30 @@
+{
+	"name": "procedural-dungeon",
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"doctor": "./scripts/doctor.sh",
+		"dev": "bun scripts/dev.ts",
+		"build": "vite build",
+		"type-check": "tsc --noEmit",
+		"test": "bun test --conditions browser ./synced-store/mutators.test.ts ./ui/App.test.happydom.tsx",
+		"test:playwright": "bun run build && bunx playwright test --update-snapshots",
+		"test:all": "bun run type-check && bun run test && bun run build && bunx playwright install chromium && bun run test:playwright",
+		"regenerate-screenshot": "bun run build && REGEN_SCREENSHOTS=1 bunx playwright test tests/screenshot.test.playwright.ts",
+		"publish-to-poe-tiles": "bun run build && poe-tiles tiles publish"
+	},
+	"dependencies": {
+		"poe-tiles-sdk": "https://misc-dev-uploads.quora-913.workers.dev/f475762cf7d215b0d206690d6cd8bf2ab63d7d4ce282158b308db634258e69e9",
+		"three": "^0.185.0"
+	},
+	"devDependencies": {
+		"@playwright/test": "1.61.1",
+		"@types/bun": "^1",
+		"@types/three": "^0.185.0",
+		"fake-indexeddb": "^6",
+		"happy-dom": "^20",
+		"typescript": "^5",
+		"vite": "^6",
+		"zod": "^4"
+	}
+}

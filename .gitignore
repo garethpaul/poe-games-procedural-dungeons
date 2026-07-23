@@ -1,0 +1,16 @@
+node_modules/
+
+# Build output
+dist/
+
+# Local CLI credential filenames. The CLI normally reads them from ~/.poe-tiles/.
+.poe-tiles-token
+poe-tiles-api-key
+poe-tiles-session-token
+
+# Keep app metadata images trackable. Commit any local profilePicture file
+# referenced by .poe-tile.json.
+
+# Test artifacts
+test-results/
+playwright-report/

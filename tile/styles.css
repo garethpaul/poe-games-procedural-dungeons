@@ -1,0 +1,799 @@
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+/* the hidden attribute must always win, even over display:flex components */
+[hidden] {
+	display: none !important;
+}
+
+:root {
+	color-scheme: light dark;
+	--app-bg-base: #07080d;
+	--app-fg-base: #c9cedb;
+}
+
+html,
+body {
+	height: 100dvh;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+}
+
+body {
+	font-family: system-ui, -apple-system, sans-serif;
+	background-color: var(--app-bg-base);
+	color: var(--app-fg-base);
+	-webkit-tap-highlight-color: transparent;
+}
+
+/* Full-viewport canvas app: the root never scrolls; the panel scrolls
+   internally. Safe-area padding keeps the panel and hints clear of device
+   chrome / host overlays. */
+#root {
+	height: 100dvh;
+	overflow: hidden;
+	padding-top: var(--poe-safe-area-inset-top, env(safe-area-inset-top));
+	padding-left: var(--poe-safe-area-inset-left, env(safe-area-inset-left));
+	padding-right: var(--poe-safe-area-inset-right, env(safe-area-inset-right));
+	padding-bottom: var(
+		--poe-safe-area-inset-bottom,
+		env(safe-area-inset-bottom)
+	);
+}
+
+/* ================================================================
+   DUNGEON FORGE — game chrome. The dungeon is a moody, ember-lit 3D
+   world with its own art direction; the panel is part of that world,
+   so it keeps its authored dark palette in both host color schemes
+   (all text is high-contrast on the opaque panel surface).
+   ================================================================ */
+.df-app {
+	--bg: #07080d;
+	--panel: #0d0f16f2;
+	--line: #232634;
+	--ink: #c9cedb;
+	--dim: #6d7386;
+	--ember: #e8973f;
+	--teal: #3fd0bb;
+	--gold: #d9a441;
+	--violet: #9b6cf0;
+	--blood: #d8433a;
+	--blue: #5a8fe8;
+	--mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+	--serif: Georgia, "Times New Roman", serif;
+	position: relative;
+	height: 100%;
+	overflow: hidden;
+	background: var(--bg);
+	color: var(--ink);
+	font-family: var(--mono);
+	font-size: 12px;
+}
+.df-app canvas {
+	display: block;
+}
+.df-app button {
+	font-family: var(--mono);
+}
+#dungeon-host {
+	position: absolute;
+	inset: 0;
+}
+
+/* -------- loading / error states -------- */
+.df-loading,
+.df-error {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	text-align: center;
+	padding: 24px;
+	color: var(--ink);
+	letter-spacing: 0.06em;
+	z-index: 20;
+}
+.df-loading-glyph {
+	font-size: 34px;
+	animation: df-pulse 1.2s ease-in-out infinite;
+}
+@keyframes df-pulse {
+	0%,
+	100% {
+		opacity: 0.45;
+		transform: scale(0.96);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1.04);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.df-loading-glyph {
+		animation: none;
+	}
+}
+.df-error {
+	color: var(--blood);
+}
+
+#panel {
+	position: absolute;
+	top: 62px;
+	left: 12px;
+	width: 308px;
+	max-height: calc(100% - 78px);
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	backdrop-filter: blur(10px);
+	overflow-y: auto;
+	z-index: 10;
+	box-shadow: 0 12px 40px #000c;
+}
+#panel::-webkit-scrollbar {
+	width: 6px;
+}
+#panel::-webkit-scrollbar-thumb {
+	background: #2b2f40;
+	border-radius: 3px;
+}
+
+.head {
+	padding: 14px 52px 12px 16px;
+	border-bottom: 1px solid var(--line);
+}
+.brand {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	letter-spacing: 0.22em;
+	font-size: 10px;
+	color: var(--ember);
+}
+.brand span:last-child {
+	color: var(--dim);
+	letter-spacing: 0.08em;
+}
+#dname {
+	font-family: var(--serif);
+	font-size: 21px;
+	font-weight: 400;
+	line-height: 1.2;
+	color: #eef0f6;
+	margin: 9px 0 0;
+}
+#dsub {
+	margin-top: 5px;
+	color: var(--dim);
+	font-size: 11px;
+	letter-spacing: 0.04em;
+}
+#dsub .ok {
+	color: var(--teal);
+}
+#dsub .bad {
+	color: var(--blood);
+}
+
+.pipe {
+	display: flex;
+	gap: 4px;
+	margin: 0;
+	padding: 10px 16px;
+	border-bottom: 1px solid var(--line);
+	flex-wrap: wrap;
+	overflow: hidden;
+	max-height: 160px;
+	transition:
+		max-height 0.3s ease,
+		opacity 0.22s ease,
+		padding 0.3s ease,
+		border-color 0.3s ease;
+}
+.pipe li {
+	list-style: none;
+	font-size: 9px;
+	letter-spacing: 0.1em;
+	padding: 3px 7px;
+	border-radius: 4px;
+	color: #4a4f61;
+	border: 1px solid #1c1f2b;
+	transition:
+		color 0.2s,
+		border-color 0.2s,
+		background 0.2s;
+}
+.pipe li.active {
+	color: var(--ember);
+	border-color: color-mix(in srgb, var(--ember) 48%, #141724);
+	background: color-mix(in srgb, var(--ember) 10%, transparent);
+}
+.pipe li.done {
+	color: #8f96ab;
+	border-color: #2b2f40;
+}
+
+.sec {
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--line);
+	overflow: hidden;
+	max-height: 640px;
+	transition:
+		max-height 0.3s ease,
+		opacity 0.22s ease,
+		padding 0.3s ease,
+		border-color 0.3s ease;
+}
+.row {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+.df-app label {
+	display: block;
+}
+.lab {
+	display: flex;
+	justify-content: space-between;
+	color: var(--dim);
+	font-size: 10px;
+	letter-spacing: 0.08em;
+	margin-bottom: 5px;
+}
+.lab b {
+	color: var(--ink);
+	font-weight: 400;
+}
+.df-app input[type="number"] {
+	flex: 1;
+	min-width: 0;
+	background: #12141f;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	color: var(--ink);
+	padding: 8px 10px;
+	font-family: var(--mono);
+	font-size: 12px;
+}
+.df-app input:focus-visible,
+.df-app button:focus-visible {
+	outline: 2px solid var(--ember);
+	outline-offset: 1px;
+}
+.btn {
+	background: #171a26;
+	border: 1px solid #2c3042;
+	border-radius: 6px;
+	color: var(--ink);
+	padding: 8px 12px;
+	cursor: pointer;
+	font-size: 12px;
+	min-height: 34px;
+	transition:
+		background 0.12s,
+		border-color 0.12s;
+}
+.btn:hover {
+	background: #1e2231;
+	border-color: #3a3f56;
+}
+.btn.primary {
+	background: color-mix(in srgb, var(--ember) 80%, #1a0d02);
+	border-color: var(--ember);
+	color: #12090a;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+}
+.btn.primary:hover {
+	background: var(--ember);
+}
+
+.chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+	margin-top: 7px;
+}
+.chip {
+	flex: 1 0 30%;
+	padding: 6px 4px;
+	font-size: 9px;
+	letter-spacing: 0.09em;
+	text-align: center;
+	background: #12141f;
+	border: 1px solid var(--line);
+	border-radius: 5px;
+	color: var(--dim);
+	cursor: pointer;
+	transition:
+		color 0.12s,
+		border-color 0.12s,
+		background 0.12s;
+}
+.chip:hover {
+	color: var(--ink);
+	border-color: #3a3f56;
+}
+.chip.on {
+	color: var(--ember);
+	border-color: color-mix(in srgb, var(--ember) 55%, #141724);
+	background: color-mix(in srgb, var(--ember) 12%, transparent);
+}
+.df-app input[type="range"] {
+	width: 100%;
+	accent-color: var(--ember);
+	height: 22px;
+	cursor: pointer;
+}
+.sl {
+	margin-top: 10px;
+}
+.sl:first-child {
+	margin-top: 0;
+}
+
+.togs {
+	display: flex;
+	flex-direction: column;
+	gap: 7px;
+}
+.tog {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+	color: var(--ink);
+	font-size: 11px;
+}
+.tog input {
+	accent-color: var(--ember);
+	width: 14px;
+	height: 14px;
+	cursor: pointer;
+	margin: 0;
+}
+.tog .key {
+	margin-left: auto;
+	color: #565b6e;
+	font-size: 9px;
+	border: 1px solid #262a3a;
+	padding: 1px 5px;
+	border-radius: 3px;
+}
+
+.legend {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px 12px;
+}
+.lg {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	color: #9aa0b4;
+	font-size: 10.5px;
+}
+.dot {
+	width: 9px;
+	height: 9px;
+	border-radius: 2px;
+	flex: none;
+}
+
+.stats {
+	display: grid;
+	grid-template-columns: 1fr 1fr 1fr;
+	gap: 8px;
+}
+.st {
+	background: #10121b;
+	border: 1px solid #1d2130;
+	border-radius: 6px;
+	padding: 7px 8px;
+}
+.st i {
+	display: block;
+	font-style: normal;
+	color: var(--dim);
+	font-size: 8.5px;
+	letter-spacing: 0.1em;
+	margin-bottom: 3px;
+}
+.st b {
+	font-weight: 400;
+	font-size: 13px;
+	color: #e8eaf2;
+}
+.st b.hi {
+	color: var(--ember);
+}
+
+/* ================================================================
+   GAME HUD — the primary mobile surface: health, gold, and two
+   small buttons. Everything else stays out of the dungeon's way.
+   ================================================================ */
+.df-hud {
+	position: absolute;
+	top: 10px;
+	left: 10px;
+	right: 10px;
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 8px;
+	z-index: 12;
+	pointer-events: none;
+}
+.df-hud-left,
+.df-hud-right {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	pointer-events: auto;
+	flex-wrap: wrap;
+}
+.df-hpwrap {
+	position: relative;
+	width: 118px;
+	height: 22px;
+	background: #12141fee;
+	border: 1px solid var(--line);
+	border-radius: 11px;
+	overflow: hidden;
+}
+.df-hp {
+	height: 100%;
+	background: linear-gradient(90deg, #2f9d6b, #47c98a);
+	transition: width 0.25s ease;
+}
+.df-hp.low {
+	background: linear-gradient(90deg, #a3332b, #d8433a);
+}
+.df-hplabel {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 11px;
+	color: #fff;
+	text-shadow: 0 1px 2px #000c;
+	letter-spacing: 0.06em;
+}
+.df-gold {
+	background: #12141fee;
+	border: 1px solid var(--line);
+	border-radius: 11px;
+	padding: 3px 10px;
+	font-size: 12px;
+	color: var(--gold);
+	height: 22px;
+	display: flex;
+	align-items: center;
+	gap: 3px;
+}
+.df-gold b {
+	font-weight: 600;
+	color: #f4d488;
+}
+.df-best {
+	background: #12141fcc;
+	border: 1px solid var(--line);
+	border-radius: 11px;
+	padding: 3px 10px;
+	font-size: 10px;
+	color: var(--dim);
+	height: 22px;
+	display: flex;
+	align-items: center;
+}
+.df-iconbtn {
+	min-width: 40px;
+	height: 40px;
+	padding: 0 12px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: #171a26ee;
+	border: 1px solid #2c3042;
+	border-radius: 10px;
+	color: var(--ink);
+	font-size: 15px;
+	cursor: pointer;
+	letter-spacing: 0.06em;
+	transition: background 0.12s, border-color 0.12s;
+}
+.df-iconbtn:hover {
+	background: #1e2231;
+	border-color: #3a3f56;
+}
+#hudAgain {
+	color: var(--ember);
+	border-color: color-mix(in srgb, var(--ember) 55%, #141724);
+	font-size: 12px;
+	font-weight: 700;
+}
+
+/* contextual hint — shown until the first move */
+.df-hint {
+	position: absolute;
+	bottom: 16px;
+	left: 50%;
+	transform: translateX(-50%);
+	max-width: calc(100% - 24px);
+	color: #aab0c4;
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	z-index: 8;
+	text-align: center;
+	background: #0a0c12dd;
+	padding: 8px 16px;
+	border-radius: 20px;
+	border: 1px solid #232634;
+}
+
+/* help popover */
+.df-help {
+	position: absolute;
+	top: 60px;
+	left: 50%;
+	transform: translateX(-50%);
+	width: min(340px, calc(100% - 24px));
+	background: var(--panel);
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	padding: 14px 16px;
+	z-index: 15;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--ink);
+	box-shadow: 0 12px 40px #000c;
+}
+.df-help b {
+	color: var(--ember);
+}
+.df-help p {
+	margin: 8px 0;
+}
+.df-help p b {
+	color: #eef0f6;
+}
+.df-help .df-iconbtn {
+	margin-top: 4px;
+	font-size: 11px;
+	font-weight: 700;
+	height: 36px;
+}
+
+/* end-of-run banner — the decisive beat before the host overlay */
+.df-endcard {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	text-align: center;
+	background: #0d0f16ee;
+	border: 1px solid var(--blood);
+	border-radius: 14px;
+	padding: 20px 28px;
+	z-index: 18;
+	box-shadow: 0 16px 50px #000d;
+	animation: df-endin 0.3s ease;
+}
+.df-endcard.win {
+	border-color: var(--gold);
+}
+@keyframes df-endin {
+	from {
+		opacity: 0;
+		transform: translate(-50%, -46%);
+	}
+}
+.df-endtitle {
+	font-family: var(--serif);
+	font-size: 24px;
+	color: var(--blood);
+	letter-spacing: 0.04em;
+}
+.df-endcard.win .df-endtitle {
+	color: var(--gold);
+}
+.df-endsub {
+	margin-top: 8px;
+	color: var(--ink);
+	font-size: 12px;
+}
+
+/* other players: HUD chips + in-world name tags (tap opens their profile) */
+.df-players {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+.df-playerchip {
+	background: #12141fcc;
+	border: 1px solid var(--line);
+	border-radius: 11px;
+	padding: 3px 10px;
+	font-size: 10px;
+	color: var(--ink);
+	height: 22px;
+	display: flex;
+	align-items: center;
+	cursor: pointer;
+	font-family: var(--mono);
+}
+.df-playerchip:hover {
+	border-color: #3a3f56;
+}
+.df-nametag {
+	position: absolute;
+	transform: translate(-50%, -130%);
+	z-index: 7;
+	background: #0a0c12cc;
+	border: 1px solid #232634;
+	border-radius: 9px;
+	padding: 2px 8px;
+	font-size: 10px;
+	font-family: var(--mono);
+	color: var(--ink);
+	cursor: pointer;
+	white-space: nowrap;
+	pointer-events: auto;
+}
+
+/* floating combat text over the canvas */
+.df-float {
+	position: absolute;
+	transform: translate(-50%, -100%);
+	z-index: 9;
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	pointer-events: none;
+	text-shadow: 0 1px 3px #000;
+	animation: df-floatup 1.05s ease-out forwards;
+}
+.df-float.df-hit {
+	color: #ff6a5c;
+}
+.df-float.df-gold {
+	color: #f4d488;
+}
+.df-float.df-heal {
+	color: #5ee0c0;
+}
+.df-float.df-win {
+	color: #ffd76b;
+	font-size: 16px;
+}
+@keyframes df-floatup {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+		transform: translate(-50%, -220%);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.df-float {
+		animation-duration: 0.6s;
+	}
+	.df-endcard {
+		animation: none;
+	}
+}
+
+/* Collapse control — a real button with a comfortable hit area, present on
+   desktop and mobile alike. */
+#collapse {
+	position: absolute;
+	top: 11px;
+	right: 11px;
+	z-index: 2;
+	width: 30px;
+	height: 30px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: #171a26;
+	border: 1px solid #2c3042;
+	border-radius: 7px;
+	color: var(--dim);
+	cursor: pointer;
+	font-size: 15px;
+	line-height: 1;
+	padding: 0;
+	transition:
+		background 0.12s,
+		color 0.12s,
+		border-color 0.12s;
+}
+#collapse:hover {
+	background: #1e2231;
+	color: var(--ink);
+	border-color: #3a3f56;
+}
+
+/* Collapsed: the header stays as a compact bar; everything else animates away
+   so the dungeon is visible behind it (essential on phones). */
+#panel.min .sec,
+#panel.min .pipe {
+	max-height: 0;
+	opacity: 0;
+	padding-top: 0;
+	padding-bottom: 0;
+	border-bottom-color: transparent;
+}
+#panel.min .head {
+	border-bottom-color: transparent;
+}
+
+/* Touch devices: enlarge every interactive target to a finger-friendly size. */
+@media (pointer: coarse) {
+	#collapse {
+		width: 38px;
+		height: 38px;
+		top: 9px;
+		right: 9px;
+		font-size: 17px;
+	}
+	.btn {
+		min-height: 42px;
+	}
+	.chip {
+		padding: 10px 4px;
+		font-size: 9.5px;
+	}
+	.df-app input[type="number"] {
+		padding: 11px 10px;
+		font-size: 13px;
+	}
+	.df-app input[type="range"] {
+		height: 34px;
+	}
+	.tog {
+		padding: 5px 0;
+	}
+	.tog input {
+		width: 18px;
+		height: 18px;
+	}
+}
+
+/* Phones / narrow hosts (including the For You feed iframe): near-full-width
+   panel that scrolls internally, and collapses down to a slim bar to free the
+   canvas. */
+@media (max-width: 640px) {
+	#panel {
+		width: calc(100% - 20px);
+		left: 10px;
+		top: 58px;
+		max-height: calc(100% - 72px);
+	}
+	.head {
+		padding: 12px 50px 10px 14px;
+	}
+	#dname {
+		font-size: 19px;
+	}
+	.sec {
+		padding: 11px 14px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.sec,
+	.pipe {
+		transition: none;
+	}
+}

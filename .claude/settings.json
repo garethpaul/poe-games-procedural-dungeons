@@ -1,0 +1,32 @@
+{
+	"permissions": {
+		"allow": [
+			"Read",
+			"Write",
+			"Edit",
+			"MultiEdit",
+			"Glob",
+			"Grep",
+			"LS",
+			"Skill(tile-creator)",
+			"Skill(synced-store)",
+			"Bash(bun run:*)",
+			"Bash(bun test:*)",
+			"Bash(bun install)",
+			"Bash(bun install:*)",
+			"Bash(bun add:*)",
+			"Bash(bun remove:*)",
+			"Bash(bunx tsc:*)",
+			"Bash(bunx vite:*)",
+			"Bash(bunx playwright:*)",
+			"Bash(./scripts/doctor.sh)",
+			"Bash(./scripts/doctor.sh:*)",
+			"Bash(bash ./scripts/doctor.sh)",
+			"Bash(bash ./scripts/doctor.sh:*)",
+			"Bash(poe-tiles:*)",
+			"Bash(POE_SERVER_URL=* poe-tiles:*)"
+		],
+		"deny": [],
+		"ask": []
+	}
+}

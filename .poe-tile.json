@@ -1,0 +1,24 @@
+{
+	"$schema": "https://poe-tiles-docs.pages.dev/schemas/poe-tile/v7.json",
+	"handle": "procedural-dungeon",
+	"displayName": "Procedural Dungeon",
+	"shortDescription": "Tap to explore a self-forging dungeon with friends: race the room past enemies and chests to fell the boss and bank your gold.",
+	"longDescription": "./README.md",
+	"profilePicture": "./assets/icon.png",
+	"screenshots": [
+		"./assets/screenshot-play.png",
+		"./assets/screenshot-panel.png",
+		"./assets/screenshot-graph.png"
+	],
+	"players": {
+		"min": 1
+	},
+	"instancing": "per-context",
+	"runtimeBundle": {
+		"dir": "dist"
+	},
+	"sourceBundle": {
+		"dir": ".",
+		"visibility": "public"
+	}
+}
