@@ -1476,6 +1476,7 @@ function disposeLevel(){
   group = null; meshes = {}; overlay = null;
   lights = [];
   fx = { liquids:[], shafts:[], spinners:[], parts:null, markers:null };
+  TREASURE = null;
 }
 
 function applyThemeEnv(TH){
@@ -2158,6 +2159,7 @@ function forge(animate){
   const d = generateDungeon(params);
   buildScene(d);
   buildMarkers();
+  buildTreasure();
   applyObjectVis();
   const TH = THEMES[themeKey];
   el.vTheme.textContent = themeSel==='auto' ? 'AUTO \u00b7 '+TH.label : TH.label;
@@ -2212,6 +2214,19 @@ function liveUpdate(time, tt){
     }
     cm.instanceMatrix.needsUpdate = true;
   }
+  /* loose treasure: gems spin and bob; both fade in with the build reveal */
+  if(TREASURE){
+    TREASURE.coinMesh.visible = TREASURE.gemMesh.visible = markerRamp > 0.05;
+    for(let i=0;i<TREASURE.gems.length;i++){
+      if(TREASURE.takenGems.has(i)) continue;
+      const p = TREASURE.gems[i];
+      _q.setFromAxisAngle(_Y, time*1.8 + i*0.9);
+      _p.set(gwx(p.x), 0.42 + 0.07*Math.sin(time*2.4 + i), gwz(p.y));
+      _m.compose(_p, _q, _s.set(1,1.5,1));
+      TREASURE.gemMesh.setMatrixAt(i,_m);
+    }
+    if(TREASURE.gems.length) TREASURE.gemMesh.instanceMatrix.needsUpdate = true;
+  }
   /* threat markers scale + fade with zoom: crisp at play zoom, receding at
      the whole-map overview so they don't swamp the miniature. The boss
      skull pulses and stays prominent at every zoom — it's the goal. */
@@ -2246,8 +2261,9 @@ function liveUpdate(time, tt){
    always plays out identically.
    ================================================================ */
 const TIER_DMG  = { 1:6, 2:12, 3:20 };
-const TIER_GOLD = { 1:5, 2:12, 3:25 };
-const CHEST_GOLD = 25;
+const TIER_GOLD = { 1:8, 2:18, 3:40 };
+const CHEST_GOLD = 35;
+const COIN_GOLD = 5, GEM_GOLD = 15;
 const BOSS_DMG = 30, BOSS_GOLD = 100;
 const MAX_HP = 100;
 
@@ -2368,6 +2384,85 @@ function hideBossMarker(){
   if(fx.markers && fx.markers.bossPts) fx.markers.bossPts.visible = false;
 }
 
+/* ---- loose treasure: gold coins (common) and spinning gems (rare) litter
+   the floors, derived deterministically from the seed. They're per-player
+   pickups — everyone gets their own sparkle to hoover up, so there's no
+   claim traffic and no feel-bad of an emptied floor; the contested economy
+   stays chests / bounties / boss. ---- */
+let TREASURE = null;   /* {coins:[{x,y}], gems:[{x,y}], coinMesh, gemMesh, takenCoins:Set, takenGems:Set} */
+function buildTreasure(){
+  const W=D.W, H=D.H, grid=D.grid, doorway=D.doorway;
+  const idx=(x,y)=>y*W+x;
+  const rng = makeRng(D.seed ^ 0x7EA5);
+  /* keep pickups off cells that already host a POI or prop */
+  const busy = new Set();
+  for(const p of D.props) busy.add(p.x+'|'+p.y);
+  for(const sp of D.spawns) busy.add(sp.x+'|'+sp.y);
+  const e = D.rooms[D.entrance];
+  const coins=[], gems=[];
+  for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+    const c=idx(x,y);
+    if(grid[c]!==FLOOR || doorway[c] || D.lakeMask[c]) continue;
+    if(busy.has(x+'|'+y)) continue;
+    if(Math.max(Math.abs(x-e.cx), Math.abs(y-e.cy)) <= 2) continue;
+    const roll = rng.raw();
+    if(roll < 0.022) coins.push({x,y});
+    else if(roll < 0.0245) gems.push({x,y});
+  }
+  /* coins: flat gold discs; gems: floating octahedra — both one draw call */
+  const coinGeo = new THREE.CylinderGeometry(0.11,0.11,0.045,10);
+  const coinMat = new THREE.MeshBasicMaterial({ color:0xf4c95c });
+  coinMat.toneMapped = false;
+  const coinMesh = new THREE.InstancedMesh(coinGeo, coinMat, Math.max(coins.length,1));
+  coinMesh.count = coins.length;
+  coins.forEach((p,i)=>{
+    _q.setFromEuler(_E.set(0, rng.f(0,6.28), 0));
+    _m.compose(_p.set(gwx(p.x), 0.06, gwz(p.y)), _q, _s.set(1,1,1));
+    coinMesh.setMatrixAt(i,_m);
+  });
+  group.add(coinMesh);
+  const gemGeo = new THREE.OctahedronGeometry(0.14,0);
+  const gemMat = new THREE.MeshBasicMaterial({ color:0x7fe8d0 });
+  gemMat.toneMapped = false;
+  const gemMesh = new THREE.InstancedMesh(gemGeo, gemMat, Math.max(gems.length,1));
+  gemMesh.count = gems.length;
+  gems.forEach((p,i)=>{
+    _m.compose(_p.set(gwx(p.x), 0.42, gwz(p.y)), _q.set(0,0,0,1), _s.set(1,1.5,1));
+    gemMesh.setMatrixAt(i,_m);
+  });
+  group.add(gemMesh);
+  levelGeos.push(coinGeo, gemGeo);
+  TREASURE = { coins, gems, coinMesh, gemMesh, takenCoins:new Set(), takenGems:new Set() };
+}
+function hideTreasure(mesh, i){
+  _m.compose(_p.set(0,-999,0), _q.set(0,0,0,1), _s.set(0.0001,0.0001,0.0001));
+  mesh.setMatrixAt(i,_m);
+  mesh.instanceMatrix.needsUpdate = true;
+}
+function pickupTreasure(c){
+  if(!TREASURE) return;
+  for(let i=0;i<TREASURE.coins.length;i++){
+    if(TREASURE.takenCoins.has(i)) continue;
+    const p = TREASURE.coins[i];
+    if(cheb(c, p.x, p.y) > 1) continue;
+    TREASURE.takenCoins.add(i);
+    hideTreasure(TREASURE.coinMesh, i);
+    GAME.gold += COIN_GOLD;
+    floatText(p.x, p.y, '+' + COIN_GOLD + 'g', 'df-gold');
+    emitGame({ type:'fx', kind:'gold' });
+  }
+  for(let i=0;i<TREASURE.gems.length;i++){
+    if(TREASURE.takenGems.has(i)) continue;
+    const p = TREASURE.gems[i];
+    if(cheb(c, p.x, p.y) > 1) continue;
+    TREASURE.takenGems.add(i);
+    hideTreasure(TREASURE.gemMesh, i);
+    GAME.gold += GEM_GOLD;
+    floatText(p.x, p.y, '+' + GEM_GOLD + 'g  GEM', 'df-gem');
+    emitGame({ type:'fx', kind:'gold' });
+  }
+}
+
 function startRun(){
   GAME.active = true; GAME.over = false; GAME.victory = false;
   GAME.bossTaken = false;
@@ -2455,6 +2550,7 @@ function damageHero(amount, atX, atY){
 }
 
 function onEnterCell(c){
+  pickupTreasure(c);
   /* enemies within reach strike first */
   for(let i=0;i<gameRefs.spawns.length;i++){
     if(GAME.defeated.has(i)) continue;

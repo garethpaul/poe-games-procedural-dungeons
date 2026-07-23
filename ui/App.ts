@@ -92,8 +92,12 @@ const APP_HTML = `
 			<tbody>
 				<tr class="df-help-head"><th colspan="2">✓ GRAB THESE</th></tr>
 				<tr>
+					<td><span class="dot" style="background:#f4c95c"></span> Coins &amp; <span class="dot" style="background:#7fe8d0"></span> gems</td>
+					<td>free gold on the floor (+5 / +15) — just walk over them</td>
+				</tr>
+				<tr>
 					<td><span class="dot" style="background:var(--gold)"></span> Wooden chests</td>
-					<td>+25 gold, free</td>
+					<td>+35 gold, free</td>
 				</tr>
 				<tr>
 					<td><span class="dot" style="background:var(--blue)"></span> Blue shrine crystals</td>

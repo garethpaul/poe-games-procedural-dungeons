@@ -705,6 +705,9 @@ body {
 .df-float.df-gold {
 	color: #f4d488;
 }
+.df-float.df-gem {
+	color: #7fe8d0;
+}
 .df-float.df-heal {
 	color: #5ee0c0;
 }
