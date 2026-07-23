@@ -83,12 +83,35 @@ const APP_HTML = `
 		</div>
 	</div>
 
-	<div class="df-hint" id="hint">Tap a tile to walk there · loot 🪙 chests · reach the <b style="color:var(--blood)">boss</b> alive</div>
+	<div class="df-hint" id="hint">Tap a tile to walk · grab 🪙 chests · <b style="color:var(--blood)">red spires</b> are enemies · reach the boss crystal alive</div>
 
 	<div class="df-help" id="help" hidden>
 		<b>How to play</b>
-		<p>You're the glowing adventurer at the entrance ring. <b>Tap anywhere</b> to walk there — enemies you pass will strike you but drop gold. Chests are pure gold, blue shrines heal you once, and the red crystal is the <b>boss</b>: reach it alive to clear the floor and bank your haul.</p>
-		<p>Drag to look around · pinch or scroll to zoom · ⚒ reforges the dungeon (everyone in the room shares it).</p>
+		<p><b>Tap anywhere</b> — your hero walks there. Reach the boss alive to clear the floor and bank your gold.</p>
+		<table class="df-helptable" aria-label="What to grab and what to avoid">
+			<tbody>
+				<tr class="df-help-head"><th colspan="2">✓ GRAB THESE</th></tr>
+				<tr>
+					<td><span class="dot" style="background:var(--gold)"></span> Wooden chests</td>
+					<td>+25 gold, free</td>
+				</tr>
+				<tr>
+					<td><span class="dot" style="background:var(--blue)"></span> Blue shrine crystals</td>
+					<td>full heal, once each</td>
+				</tr>
+				<tr>
+					<td><span class="dot" style="background:var(--blood)"></span> The giant red crystal</td>
+					<td><b>the BOSS</b> — reach it alive to win the floor (costs 30&nbsp;HP)</td>
+				</tr>
+				<tr class="df-help-head df-help-bad"><th colspan="2">✗ THESE COST YOU BLOOD</th></tr>
+				<tr>
+					<td><span class="dot" style="background:#b03a2a"></span> Small red/violet spires</td>
+					<td>enemies — walking near one costs 6–20&nbsp;HP (they do drop gold)</td>
+				</tr>
+			</tbody>
+		</table>
+		<p>HP never regens on its own — plan a route that leaves enough blood for the boss. Everyone in the room plays the same floor: loot is first-come-first-served, and the first to fell the boss wins the race.</p>
+		<p>Drag to look around · pinch or scroll to zoom · ⚒ reforges the dungeon for the whole room.</p>
 		<button class="df-iconbtn" id="helpClose">GOT IT</button>
 	</div>
 
