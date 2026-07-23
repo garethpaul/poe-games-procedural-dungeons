@@ -8,6 +8,9 @@ export default defineConfig({
 	build: {
 		outDir: "../dist",
 		emptyOutDir: true,
+		// Inline ?url image imports as data: URLs — the sandboxed iframe origin
+		// is "null", so hashed asset paths don't reliably resolve.
+		assetsInlineLimit: 10 * 1024 * 1024,
 		rollupOptions: {
 			output: {
 				entryFileNames: "tile-frontend.js",

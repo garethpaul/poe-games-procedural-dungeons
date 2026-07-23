@@ -1,4 +1,7 @@
 import { getLeaderboard } from "poe-tiles-sdk/v1/client.js";
+import loadingArtUrl from "./art/loading.jpg?url";
+import victoryArtUrl from "./art/victory.jpg?url";
+import defeatArtUrl from "./art/defeat.jpg?url";
 import type { AppStoreClient } from "../client";
 import {
 	clampSettings,
@@ -120,6 +123,7 @@ const APP_HTML = `
 	</div>
 
 	<div class="df-endcard" id="endcard" hidden>
+		<img class="df-endart" id="endArt" alt="">
 		<div class="df-endtitle" id="endTitle"></div>
 		<div class="df-endsub" id="endSub"></div>
 	</div>
@@ -227,7 +231,7 @@ export async function mountApp(
 	// never a blank iframe.
 	const loading = document.createElement("div");
 	loading.className = "df-loading";
-	loading.innerHTML = `<div class="df-loading-glyph">🏰</div><div>Forging the dungeon…</div>`;
+	loading.innerHTML = `<img class="df-loading-art" alt="" src="${loadingArtUrl}"><div class="df-loading-text">Forging the dungeon…</div>`;
 	app.appendChild(loading);
 
 	let destroyed = false;
@@ -397,6 +401,8 @@ export async function mountApp(
 		queuePresence(true);
 		const title = $("endTitle");
 		const sub = $("endSub");
+		const art = $<HTMLImageElement>("endArt");
+		if (art) art.src = ev.victory ? victoryArtUrl : defeatArtUrl;
 		if (title)
 			title.textContent = ev.victory
 				? "⚔ FLOOR CLEARED"
