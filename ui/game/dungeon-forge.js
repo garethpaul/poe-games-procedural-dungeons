@@ -2277,16 +2277,21 @@ const GAME = {
 
 /* hero: a tiny torch-lit adventurer built from primitives; the same builder
    makes the (lightless) heroes of other room members */
-function makeHeroMesh(color){
+function makeHeroMesh(color, ghost){
   const bodyMat = new THREE.MeshStandardMaterial({ color, roughness:0.55, metalness:0.15 });
   const headMat = new THREE.MeshStandardMaterial({ color:0xf0d8b8, roughness:0.8 });
   const glowMat = new THREE.MeshBasicMaterial({ color, transparent:true, opacity:0.85 });
   glowMat.toneMapped = false;
+  if(ghost){
+    /* translucent apparition: see-through, no shadow, no depth writes */
+    for(const m of [bodyMat, headMat]){ m.transparent = true; m.opacity = 0.3; m.depthWrite = false; }
+    glowMat.opacity = 0.35;
+  }
   const g = new THREE.Group();
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.2,0.42,10), bodyMat);
-  body.position.y = 0.34; body.castShadow = true;
+  body.position.y = 0.34; body.castShadow = !ghost;
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.13,10,8), headMat);
-  head.position.y = 0.66; head.castShadow = true;
+  head.position.y = 0.66; head.castShadow = !ghost;
   const hood = new THREE.Mesh(new THREE.ConeGeometry(0.15,0.22,10), bodyMat);
   hood.position.y = 0.76;
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34,0.035,8,24).rotateX(-Math.PI/2), glowMat);
@@ -2479,6 +2484,7 @@ function startRun(){
   for(const r of remotes.values()) r.cell = null;
   targetMarker.visible = false;
   emitHud();
+  emitGame({ type:'runStart', seed: D.seed });
   emitGame({ type:'pos', cell:{...GAME.cell}, hp:GAME.hp, gold:GAME.gold });
 }
 
@@ -2675,6 +2681,63 @@ function setRemotePlayers(list){
     remotes.delete(userId);
   }
 }
+/* ---- ghosts: translucent replays of recorded runs on this floor.
+   They loop: walk the trace in real recorded time, vanish for a beat,
+   then start over — the dungeon always has spirits roaming it. ---- */
+const GHOST_LOOP_PAUSE = 2.5;
+const ghosts = new Map();   /* userId -> {group, label, trace, dur, offset, i} */
+function setGhosts(list){
+  const seen = new Set();
+  for(const g of list){
+    if(!g.trace || g.trace.length < 2) continue;
+    seen.add(g.userId);
+    let r = ghosts.get(g.userId);
+    if(!r){
+      const group = makeHeroMesh(remoteColor(g.userId), true);
+      group.visible = false;
+      scene.add(group);
+      const label = document.createElement('button');
+      label.className = 'df-nametag df-ghosttag';
+      label.type = 'button';
+      const uid = g.userId;
+      label.addEventListener('click', ()=>emitGame({ type:'profile', userId: uid }));
+      root.appendChild(label);
+      r = { group, label, i:0, offset: elapsed };
+      ghosts.set(g.userId, r);
+    }
+    r.trace = g.trace;
+    r.dur = g.trace[g.trace.length-1].t;
+    r.label.textContent = '👻 ' + g.name + (g.gold ? ' · ' + g.gold + 'g' : '');
+  }
+  for(const [userId, r] of ghosts){
+    if(seen.has(userId)) continue;
+    scene.remove(r.group);
+    r.label.remove();
+    ghosts.delete(userId);
+  }
+}
+function updateGhosts(dt, time){
+  for(const r of ghosts.values()){
+    if(!D || !r.trace){ r.group.visible = false; r.label.style.display='none'; continue; }
+    const cycle = r.dur + GHOST_LOOP_PAUSE;
+    const tt = (time - r.offset) % cycle;
+    if(tt > r.dur){ r.group.visible = false; r.label.style.display='none'; r.i = 0; continue; }
+    if(r.i > 0 && r.trace[r.i].t > tt) r.i = 0;   /* looped — rewind */
+    while(r.i < r.trace.length-2 && r.trace[r.i+1].t <= tt) r.i++;
+    const a = r.trace[r.i], b = r.trace[Math.min(r.i+1, r.trace.length-1)];
+    const k = b.t > a.t ? Math.min(1, (tt - a.t)/(b.t - a.t)) : 0;
+    const x = gwx(a.x + (b.x-a.x)*k), z = gwz(a.y + (b.y-a.y)*k);
+    if(b.x!==a.x || b.y!==a.y) r.group.rotation.y = Math.atan2(gwx(b.x)-gwx(a.x), gwz(b.y)-gwz(a.y));
+    r.group.visible = true;
+    r.group.position.set(x, 0.04*Math.abs(Math.sin(time*9)), z);
+    _p.set(x, 1.05, z).project(cam);
+    if(_p.z > 1){ r.label.style.display = 'none'; continue; }
+    r.label.style.display = '';
+    r.label.style.left = ((_p.x*0.5+0.5) * host.clientWidth) + 'px';
+    r.label.style.top  = ((-_p.y*0.5+0.5) * host.clientHeight) + 'px';
+  }
+}
+
 function updateRemotes(dt, time){
   for(const r of remotes.values()){
     const show = !!(r.cell && !r.over && D);
@@ -2748,6 +2811,7 @@ function updateGame(dt, time){
       external: !!winner, winner });
   }
   updateRemotes(dt, time);
+  updateGhosts(dt, time);
   /* camera */
   if(followHero){
     const k = 1 - Math.exp(-dt*4);
@@ -2966,6 +3030,8 @@ function destroy(){
   clearTimeout(deb);
   for(const r of remotes.values()){ scene.remove(r.group); r.label.remove(); }
   remotes.clear();
+  for(const r of ghosts.values()){ scene.remove(r.group); r.label.remove(); }
+  ghosts.clear();
   disposeLevel();
   if(POST.rtScene){ POST.rtScene.dispose(); POST.rtA.dispose(); POST.rtB.dispose(); }
   renderer.dispose();
@@ -2998,6 +3064,7 @@ const game = {
   /* multiplayer sync surface (driven by the App's store subscriptions) */
   applyClaims: (keys, bossByOtherName) => applyClaims(keys, bossByOtherName || null),
   setRemotePlayers: (list) => setRemotePlayers(list),
+  setGhosts: (list) => setGhosts(list),
 };
 /* expose for Playwright e2e — same-iframe global, harmless in production */
 try { window.__dfGame = game; } catch { /* no-op */ }

@@ -16,6 +16,7 @@ export type GameEvent =
 	  }
 	| { type: "fx"; kind: "hit" | "gold" | "heal" | "win" | "death" }
 	| { type: "firstMove" }
+	| { type: "runStart"; seed: number }
 	| { type: "claim"; key: string }
 	| { type: "pos"; cell: { x: number; y: number }; hp: number; gold: number }
 	| { type: "profile"; userId: string }
@@ -34,6 +35,13 @@ export interface RemotePlayer {
 	name: string;
 	cell: { x: number; y: number } | null;
 	over: boolean;
+}
+
+export interface GhostRun {
+	userId: string;
+	name: string;
+	trace: Array<{ x: number; y: number; t: number }>;
+	gold: number;
 }
 
 export interface GameState {
@@ -59,6 +67,8 @@ export interface GameApi {
 	applyClaims: (keys: string[], bossByOtherName?: string | null) => void;
 	/** Render/refresh the other members' heroes. */
 	setRemotePlayers: (players: RemotePlayer[]) => void;
+	/** Render/refresh looping translucent replays of recorded runs. */
+	setGhosts: (ghosts: GhostRun[]) => void;
 }
 
 export interface DungeonForgeOptions {

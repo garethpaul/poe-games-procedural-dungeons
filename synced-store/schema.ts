@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { defineSchema, table } from "poe-tiles-sdk/v1/backend.js";
-import { TILE_SCHEMA_VERSION, THEME_OPTIONS } from "./constants";
+import {
+	GHOST_TRACE_MAX,
+	TILE_SCHEMA_VERSION,
+	THEME_OPTIONS,
+} from "./constants";
 
 // The one shared forge-settings row (fixed itemKey "forge"). Everyone in the
 // context sees — and can reforge — the same dungeon: the generator is fully
@@ -42,6 +46,22 @@ export const playerSchema = z.object({
 });
 export type Player = z.infer<typeof playerSchema>;
 
+// Ghost replay of a player's best run on one floor. Keyed by userId (one
+// ghost per player); `floorKey` ties the trace to the exact floor settings so
+// a ghost never replays through the walls of a different layout. The trace is
+// a bounded, downsampled list of grid cells with elapsed seconds.
+export const ghostSchema = z.object({
+	userId: z.string(),
+	floorKey: z.string(),
+	gold: z.number().int().nonnegative(),
+	victory: z.boolean(),
+	trace: z
+		.array(z.object({ x: z.number(), y: z.number(), t: z.number() }))
+		.max(GHOST_TRACE_MAX),
+	recordedAt: z.number(),
+});
+export type Ghost = z.infer<typeof ghostSchema>;
+
 // First-claim-wins ownership of a point of interest on the current floor.
 // Keyed by the POI key ("spawn-3", "chest-1", "shrine-0", "boss"); cleared
 // whenever the floor reforges.
@@ -59,6 +79,7 @@ export const tileSchema = defineSchema({
 		runs: { schema: table(runSchema) },
 		players: { schema: table(playerSchema) },
 		claims: { schema: table(claimSchema) },
+		ghosts: { schema: table(ghostSchema) },
 	},
 	mutators: {
 		setForgeSettings: {
@@ -91,6 +112,11 @@ export const tileSchema = defineSchema({
 				key: z.string(),
 				at: z.number(),
 			}),
+		},
+		saveGhost: {
+			description:
+				"Save the player's run trace as a replayable ghost — keeps their best-gold run per floor",
+			input: ghostSchema,
 		},
 	},
 });

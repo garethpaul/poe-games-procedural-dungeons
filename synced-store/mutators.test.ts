@@ -246,3 +246,45 @@ test("updatePlayer publishes live state; reforge resets players and claims", asy
 	);
 	expect(claims.length).toBe(0);
 });
+
+test("saveGhost keeps the best-gold run per floor and stays bounded", async () => {
+	const harness = createHarness();
+	const { store } = await harness.createClient({ userId: "alice" });
+
+	const trace = [
+		{ x: 1, y: 1, t: 0 },
+		{ x: 2, y: 1, t: 0.4 },
+		{ x: 3, y: 1, t: 0.8 },
+	];
+	await store.mutate.saveGhost({
+		userId: "alice",
+		floorKey: "floor-a",
+		gold: 120,
+		victory: true,
+		trace,
+		recordedAt: 100,
+	});
+	// Worse run on the same floor must not replace the ghost.
+	await store.mutate.saveGhost({
+		userId: "alice",
+		floorKey: "floor-a",
+		gold: 40,
+		victory: false,
+		trace,
+		recordedAt: 200,
+	});
+	let ghost = await store.query((tx) => tx.table("ghosts").get("alice"));
+	expect(ghost).toMatchObject({ gold: 120, floorKey: "floor-a" });
+
+	// A run on a different floor always replaces (old trace can't replay).
+	await store.mutate.saveGhost({
+		userId: "alice",
+		floorKey: "floor-b",
+		gold: 10,
+		victory: false,
+		trace,
+		recordedAt: 300,
+	});
+	ghost = await store.query((tx) => tx.table("ghosts").get("alice"));
+	expect(ghost).toMatchObject({ gold: 10, floorKey: "floor-b" });
+});

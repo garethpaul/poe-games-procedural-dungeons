@@ -701,6 +701,11 @@ body {
 	white-space: nowrap;
 	pointer-events: auto;
 }
+.df-ghosttag {
+	opacity: 0.6;
+	border-style: dashed;
+	color: #9fd8e8;
+}
 
 /* floating combat text over the canvas */
 .df-float {

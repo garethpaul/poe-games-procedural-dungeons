@@ -11,6 +11,8 @@ export const MAX_RECENT_RUNS = 50;
 export const MAX_HP = 100;
 /** Minimum interval between live position mutations while walking. */
 export const PRESENCE_THROTTLE_MS = 600;
+/** Hard cap on ghost replay traces — bounded, downsampled, never per-frame. */
+export const GHOST_TRACE_MAX = 240;
 
 export const THEME_OPTIONS = [
 	"auto",

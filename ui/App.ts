@@ -6,6 +6,7 @@ import type { AppStoreClient } from "../client";
 import {
 	clampSettings,
 	DEFAULT_FORGE_SETTINGS,
+	GHOST_TRACE_MAX,
 	LEADERBOARD_ID,
 	MAX_HP,
 	PRESENCE_THROTTLE_MS,
@@ -13,7 +14,12 @@ import {
 	type ForgeSettings,
 } from "../synced-store/constants";
 import { readForgeSettings } from "../synced-store/data/index";
-import type { Claim, ForgeSettingsRow, Player } from "../synced-store/schema";
+import type {
+	Claim,
+	ForgeSettingsRow,
+	Ghost,
+	Player,
+} from "../synced-store/schema";
 import type {
 	DungeonForgeHandle,
 	DungeonForgeOptions,
@@ -117,7 +123,7 @@ const APP_HTML = `
 				</tr>
 			</tbody>
 		</table>
-		<p>HP never regens on its own — plan a route that leaves enough blood for the boss. Everyone in the room plays the same floor: loot is first-come-first-served, and the first to fell the boss wins the race.</p>
+		<p>HP never regens on its own — plan a route that leaves enough blood for the boss. Everyone in the room plays the same floor: loot is first-come-first-served, and the first to fell the boss wins the race. The translucent <b>👻 ghosts</b> are replays of the best runs on this floor — chase them.</p>
 		<p>Drag to look around · pinch or scroll to zoom · ⚒ reforges the dungeon for the whole room.</p>
 		<button class="df-iconbtn" id="helpClose">GOT IT</button>
 	</div>
@@ -389,6 +395,57 @@ export async function mountApp(
 		presenceTimer = setTimeout(sendPresence, wait);
 	}
 
+	// ─── Ghost recording + replay wiring ───────────────────────────────────────
+	// Record where this run walked (bounded; downsampled again before saving).
+	let runTrace: Array<{ x: number; y: number; t: number }> = [];
+	let runStartedAt = 0;
+	function currentFloorKey(): string {
+		return engine ? settingsKey(engine.getSettings()) : "";
+	}
+	function downsampleTrace(
+		trace: Array<{ x: number; y: number; t: number }>,
+	): Array<{ x: number; y: number; t: number }> {
+		if (trace.length <= GHOST_TRACE_MAX) return trace;
+		const stride = Math.ceil(trace.length / GHOST_TRACE_MAX);
+		const out = trace.filter((_, i) => i % stride === 0);
+		if (out[out.length - 1] !== trace[trace.length - 1])
+			out.push(trace[trace.length - 1]);
+		return out.slice(0, GHOST_TRACE_MAX);
+	}
+	// Latest sync state, combined into the engine's ghost set: a player's
+	// ghost hides while they're live on the floor (their solid hero is
+	// walking it), but your own best-run ghost always roams so you can race
+	// yourself.
+	let latestPlayers: Array<{
+		userId: string;
+		name: string;
+		cell: { x: number; y: number } | null;
+		over: boolean;
+		gold: number;
+	}> = [];
+	let latestGhosts: Array<Ghost & { name: string }> = [];
+	function syncGhosts(): void {
+		if (!engine || destroyed) return;
+		const floorKey = currentFloorKey();
+		const liveIds = new Set(
+			latestPlayers.filter((p) => p.cell && !p.over).map((p) => p.userId),
+		);
+		engine.game.setGhosts(
+			latestGhosts
+				.filter(
+					(g) =>
+						g.floorKey === floorKey &&
+						(g.userId === userId || !liveIds.has(g.userId)),
+				)
+				.map((g) => ({
+					userId: g.userId,
+					name: g.userId === userId ? "you" : g.name,
+					trace: g.trace,
+					gold: g.gold,
+				})),
+		);
+	}
+
 	// ─── End-of-run flow: banner → readable beat → platform overlay ───────────
 	async function handleRunEnd(
 		ev: Extract<GameEvent, { type: "end" }>,
@@ -399,6 +456,17 @@ export async function mountApp(
 		presence.victory = ev.victory;
 		presence.gold = ev.gold;
 		queuePresence(true);
+		// Leave a ghost of this run for the room (kept if it's your best here).
+		if (runTrace.length >= 2) {
+			void store.mutate.saveGhost({
+				userId,
+				floorKey: currentFloorKey(),
+				gold: ev.gold,
+				victory: ev.victory,
+				trace: downsampleTrace(runTrace),
+				recordedAt: now(),
+			});
+		}
 		const title = $("endTitle");
 		const sub = $("endSub");
 		const art = $<HTMLImageElement>("endArt");
@@ -472,11 +540,21 @@ export async function mountApp(
 				hudAgain.hidden = true;
 				endcard.hidden = true;
 			}
+		} else if (ev.type === "runStart") {
+			runTrace = [];
+			runStartedAt = Date.now();
+			syncGhosts();
 		} else if (ev.type === "pos") {
 			presence.cell = ev.cell;
 			presence.hp = ev.hp;
 			presence.gold = ev.gold;
 			queuePresence();
+			if (runTrace.length < 4 * GHOST_TRACE_MAX)
+				runTrace.push({
+					x: ev.cell.x,
+					y: ev.cell.y,
+					t: (Date.now() - runStartedAt) / 1000,
+				});
 		} else if (ev.type === "claim") {
 			void store.mutate.claimPoi({ userId, key: ev.key, at: now() });
 		} else if (ev.type === "profile") {
@@ -565,7 +643,9 @@ export async function mountApp(
 			},
 			(players) => {
 				if (destroyed || !engine) return;
+				latestPlayers = players;
 				engine.game.setRemotePlayers(players);
+				syncGhosts();
 				const chips = $("hudPlayers");
 				if (!chips) return;
 				chips.replaceChildren(
@@ -612,6 +692,32 @@ export async function mountApp(
 			(result) => {
 				if (destroyed || !engine) return;
 				engine.game.applyClaims(result.keys, result.bossWinnerName);
+			},
+		),
+	);
+
+	// Ghost replays: everyone's best recorded run on this floor.
+	unsubs.push(
+		store.subscribe(
+			async (ctx) => {
+				const rows = (await ctx
+					.table("ghosts")
+					.scan()
+					.values()
+					.toArray()) as Ghost[];
+				return Promise.all(
+					rows.map(async (g) => {
+						const info = (await ctx.table("$userInfo").get(g.userId)) as
+							| { displayName?: string }
+							| undefined;
+						return { ...g, name: info?.displayName ?? "Adventurer" };
+					}),
+				);
+			},
+			(ghostRows) => {
+				if (destroyed) return;
+				latestGhosts = ghostRows;
+				syncGhosts();
 			},
 		),
 	);

@@ -75,6 +75,7 @@ function stubEngineFactory(): {
 					},
 					applyClaims: () => {},
 					setRemotePlayers: () => {},
+					setGhosts: () => {},
 				},
 			},
 		};

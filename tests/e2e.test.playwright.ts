@@ -254,6 +254,11 @@ test.describe("procedural-dungeon", () => {
 		await expect(bobFrame.locator(".df-playerchip")).toContainText("☠", {
 			timeout: 15_000,
 		});
+		// Alice's finished run left a ghost that replays on bob's floor.
+		await expect(bobFrame.locator(".df-ghosttag")).toBeAttached({
+			timeout: 20_000,
+		});
+		await expect(bobFrame.locator(".df-ghosttag")).toContainText("👻");
 
 		await aliceContext.close();
 		await bobContext.close();
